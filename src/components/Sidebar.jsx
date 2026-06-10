@@ -12,17 +12,17 @@ export default function Sidebar({ profile, page, setPage, onSignOut }) {
     { icon:'📋', label:'My Requests',     key:'my_requests' },
   ]
 
-  // OS Portal menu items
   const osNav = [
     { icon:'👥', label:'Employee Directory', key:'employees' },
     { icon:'🏢', label:'Departments',        key:'departments' },
     { icon:'📊', label:'Analytics',          key:'analytics' },
   ]
 
-  // Admin menu (only for admins)
   const adminNav = profile.role === 'admin' ? [
-    { icon:'⚙️', label:'Admin Panel',     key:'admin' },
+    { icon:'⚙️', label:'Admin Panel', key:'admin' },
   ] : []
+
+  const canAccessOS = ['hod', 'management', 'admin'].includes(profile.role)
 
   return (
     <div style={{ width:220, background:C.sidebar, display:'flex', flexDirection:'column', flexShrink:0 }}>
@@ -44,8 +44,8 @@ export default function Sidebar({ profile, page, setPage, onSignOut }) {
       </div>
 
       {/* Nav */}
-      <div style={{ flex:1, padding:'12px 8px', overflowY: 'auto' }}>
-        {/* Requisition Section */}
+      <div style={{ flex:1, padding:'12px 8px', overflowY:'auto' }}>
+        {/* Requisitions */}
         <div style={{ fontSize:7.5, fontWeight:700, color:C.ghost, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0 8px', marginBottom:6 }}>Requisitions</div>
         {baseNav.map(item => (
           <button key={item.key} onClick={() => setPage(item.key)}
@@ -56,18 +56,22 @@ export default function Sidebar({ profile, page, setPage, onSignOut }) {
           </button>
         ))}
 
-        {/* OS Portal Section */}
-        <div style={{ fontSize:7.5, fontWeight:700, color:C.ghost, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0 8px', marginTop:16, marginBottom:6 }}>OS Portal</div>
-        {osNav.map(item => (
-          <button key={item.key} onClick={() => setPage(item.key)}
-            style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'8px 10px', borderRadius:7, border:'none', cursor:'pointer', marginBottom:2, textAlign:'left',
-              background: page===item.key ? 'rgba(21,101,216,0.25)' : 'transparent',
-              color: page===item.key ? '#fff' : C.muted, fontSize:12, fontWeight: page===item.key ? 600 : 400 }}>
-            <span>{item.icon}</span> {item.label}
-          </button>
-        ))}
+        {/* OS Portal — HOD, Management, Admin only */}
+        {canAccessOS && (
+          <>
+            <div style={{ fontSize:7.5, fontWeight:700, color:C.ghost, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0 8px', marginTop:16, marginBottom:6 }}>OS Portal</div>
+            {osNav.map(item => (
+              <button key={item.key} onClick={() => setPage(item.key)}
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:9, padding:'8px 10px', borderRadius:7, border:'none', cursor:'pointer', marginBottom:2, textAlign:'left',
+                  background: page===item.key ? 'rgba(21,101,216,0.25)' : 'transparent',
+                  color: page===item.key ? '#fff' : C.muted, fontSize:12, fontWeight: page===item.key ? 600 : 400 }}>
+                <span>{item.icon}</span> {item.label}
+              </button>
+            ))}
+          </>
+        )}
 
-        {/* Admin Section */}
+        {/* Admin */}
         {adminNav.length > 0 && (
           <>
             <div style={{ fontSize:7.5, fontWeight:700, color:C.ghost, textTransform:'uppercase', letterSpacing:'0.1em', padding:'0 8px', marginTop:16, marginBottom:6 }}>Admin</div>

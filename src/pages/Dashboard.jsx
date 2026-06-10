@@ -6,8 +6,9 @@ import EmployeeDirectory from './EmployeeDirectory'
 import Analytics from './Analytics'
 import DepartmentManagement from './DepartmentManagement'
 import AdminPanel from './AdminPanel'
+import NotificationBell from '../components/NotificationBell'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import Sidebar from '../components/Sidebar'
 import { LogOut } from 'lucide-react'
@@ -52,28 +53,28 @@ export default function Dashboard({ profile }) {
   async function signOut() {
     await supabase.auth.signOut()
   }
-  console.log('role:', profile.role, 'dept:', profile.department_id)
+
+  const canAccessOS = ['hod', 'management', 'admin'].includes(profile.role)
 
   const renderPage = () => {
     if (profile.role === 'hod') return <HODDashboard profile={profile} />
     if (profile.role === 'management') return <ManagementDashboard profile={profile} />
     if (profile.role === 'stores') return <StoresDashboard profile={profile} />
-    
-    // OS Portal pages available to all users
+
     switch(page) {
       case 'employees':
-        return <EmployeeDirectory />
+        return canAccessOS ? <EmployeeDirectory /> : <StaffDashboard profile={profile} setPage={setPage} />
       case 'departments':
-        return <DepartmentManagement />
+        return canAccessOS ? <DepartmentManagement /> : <StaffDashboard profile={profile} setPage={setPage} />
       case 'analytics':
-        return <Analytics />
+        return canAccessOS ? <Analytics /> : <StaffDashboard profile={profile} setPage={setPage} />
       case 'admin':
-        return profile.role === 'admin' ? <AdminPanel /> : <Home profile={profile} setPage={setPage} />
-      case 'new_request': 
+        return profile.role === 'admin' ? <AdminPanel /> : <StaffDashboard profile={profile} setPage={setPage} />
+      case 'new_request':
         return <NewRequest profile={profile} setPage={setPage} />
-      case 'my_requests': 
+      case 'my_requests':
         return <MyRequests profile={profile} setPage={setPage} />
-      default: 
+      default:
         return <StaffDashboard profile={profile} setPage={setPage} />
     }
   }
@@ -85,33 +86,22 @@ export default function Dashboard({ profile }) {
         {/* Top bar */}
         <div style={{ height:52, background:C.card, borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', padding:'0 28px', gap:14, flexShrink:0, justifyContent:'space-between' }}>
           <div style={{ fontSize:13, fontWeight:700, color:C.text }}>
-            { 
-              page === 'dashboard' ? 'Dashboard' : 
-              page === 'employees' ? 'Employee Directory' :
-              page === 'departments' ? 'Department Management' :
-              page === 'analytics' ? 'Analytics' :
-              page === 'admin' ? 'Admin Panel' :
-              page === 'new_request' ? 'New Requisition' : 
-              'My Requests' 
-            }
+            {page === 'dashboard' ? 'Dashboard' :
+             page === 'employees' ? 'Employee Directory' :
+             page === 'departments' ? 'Department Management' :
+             page === 'analytics' ? 'Analytics' :
+             page === 'admin' ? 'Admin Panel' :
+             page === 'new_request' ? 'New Requisition' :
+             'My Requests'}
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+            <NotificationBell userId={profile.id} />
             <div style={{ width:30, height:30, borderRadius:'50%', background:C.primary+'20', border:`1.5px solid ${C.primary}30`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:C.primary }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
             <button
               onClick={signOut}
-              style={{ 
-                background: 'transparent', 
-                border: 'none', 
-                color: C.muted, 
-                cursor: 'pointer', 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 6,
-                fontSize: 12,
-                padding: '4px 8px'
-              }}
+              style={{ background:'transparent', border:'none', color:C.muted, cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:12, padding:'4px 8px' }}
               title="Sign Out"
             >
               <LogOut size={16} />
@@ -138,15 +128,12 @@ function Home({ profile, setPage }) {
           {profile.departments?.name} · {profile.title}
         </div>
       </div>
-
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:28 }}>
         <StatCard label="Total Requests" val="0" sub="This year" icon="📋" color={C.primary}/>
         <StatCard label="In Progress"    val="0" sub="Awaiting action" icon="⏳" color="#D97706"/>
         <StatCard label="Approved"       val="0" sub="This month" icon="✅" color="#16A34A"/>
         <StatCard label="Fulfilled"      val="0" sub="Items received" icon="📦" color="#0891B2"/>
       </div>
-
-      {/* CTA */}
       <div style={{ background:'#18243A', borderRadius:12, padding:'20px 24px', marginBottom:28, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
         <div>
           <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:3 }}>Need something from the store?</div>
@@ -156,7 +143,6 @@ function Home({ profile, setPage }) {
           + New Requisition
         </button>
       </div>
-
       <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:12 }}>Recent Requests</div>
       <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'40px 24px', textAlign:'center', color:C.muted, fontSize:13 }}>
         No requests yet — submit your first one above
@@ -240,14 +226,12 @@ function NewRequest({ profile, setPage }) {
           <div style={{ color:'#fff', fontWeight:700, fontSize:12, letterSpacing:'0.05em' }}>STORE REQUISITION · ACTI-TECH LIMITED</div>
           <div style={{ fontSize:10, color:'#5A7A9A' }}>Ref: Auto-generated</div>
         </div>
-
         <div style={{ padding:'24px' }}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:16 }}>
             <div><label style={lbl}>Requester</label><input style={{...inp, background:'#F8FAFC'}} value={profile.full_name} readOnly/></div>
             <div><label style={lbl}>Department</label><input style={{...inp, background:'#F8FAFC'}} value={profile.departments?.name || ''} readOnly/></div>
             <div><label style={lbl}>Date</label><input style={{...inp, background:'#F8FAFC'}} value={new Date().toLocaleDateString('en-GB')} readOnly/></div>
           </div>
-
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
             <div><label style={lbl}>Purpose</label>
               <input style={inp} placeholder="e.g. MD's Residence — Cameras" value={form.purpose} onChange={e => setForm(p => ({...p, purpose: e.target.value}))}/>
@@ -256,7 +240,6 @@ function NewRequest({ profile, setPage }) {
               <input style={inp} placeholder="e.g. Olympia Estate, Kaura Abuja" value={form.location} onChange={e => setForm(p => ({...p, location: e.target.value}))}/>
             </div>
           </div>
-
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:16 }}>
             <div><label style={lbl}>Project Supervisor</label>
               <input style={inp} placeholder="Supervisor name" value={form.supervisor} onChange={e => setForm(p => ({...p, supervisor: e.target.value}))}/>
@@ -267,7 +250,6 @@ function NewRequest({ profile, setPage }) {
               </select>
             </div>
           </div>
-
           <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20 }}>
             <span style={{ fontSize:11, fontWeight:600, color:C.text }}>Priority:</span>
             {['Normal','Urgent'].map(p => (
@@ -277,8 +259,6 @@ function NewRequest({ profile, setPage }) {
               </button>
             ))}
           </div>
-
-          {/* Items table */}
           <div style={{ marginBottom:16 }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
               <label style={lbl}>Items Requested</label>
@@ -308,14 +288,11 @@ function NewRequest({ profile, setPage }) {
               </table>
             </div>
           </div>
-
           <div style={{ marginBottom:20 }}>
             <label style={lbl}>Additional Comments</label>
             <textarea rows={3} value={form.comments} onChange={e => setForm(p => ({...p, comments: e.target.value}))} placeholder="Any extra context..." style={{...inp, resize:'vertical'}}/>
           </div>
-
           {error && <div style={{ fontSize:11, color:'#DC2626', marginBottom:12 }}>{error}</div>}
-
           <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
             <button onClick={() => setPage('dashboard')} style={{ padding:'9px 18px', border:`1px solid ${C.border}`, borderRadius:8, background:'#fff', fontSize:12, color:C.muted, cursor:'pointer' }}>Cancel</button>
             <button onClick={submit} disabled={loading} style={{ padding:'9px 22px', border:'none', borderRadius:8, background:C.primary, color:'#fff', fontSize:12, fontWeight:700, cursor:'pointer' }}>
