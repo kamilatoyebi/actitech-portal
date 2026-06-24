@@ -2,16 +2,12 @@ import HODDashboard from './Dashboards/HODDashboard'
 import ManagementDashboard from './Dashboards/ManagementDashboard'
 import StoresDashboard from './Dashboards/StoresDashboard'
 import StaffDashboard from './Dashboards/StaffDashboard'
-import EmployeeDirectory from './EmployeeDirectory'
-import Analytics from './Analytics'
-import DepartmentManagement from './DepartmentManagement'
-import AdminPanel from './AdminPanel'
-import NotificationBell from '../components/NotificationBell'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import Sidebar from '../components/Sidebar'
 import { LogOut } from 'lucide-react'
+import { sendEmail, emailTemplates } from '../lib/sendEmail'
 
 const C = {
   primary: '#1565D8', light: '#3AACEE', dark: '#080F1A',
@@ -34,15 +30,14 @@ function Pill({ status }) {
   return <span style={{ background:s.bg, color:s.c, padding:'3px 9px', borderRadius:20, fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>{s.l}</span>
 }
 
-function StatCard({ label, val, sub, color=C.primary, icon }) {
+function ComingSoon({ title }) {
   return (
-    <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'16px 18px' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-        <span style={{ fontSize:9, color:C.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{label}</span>
-        <span style={{ fontSize:18 }}>{icon}</span>
+    <div style={{ padding:'28px 32px' }}>
+      <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:8 }}>{title}</div>
+      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10,
+        padding:'60px 24px', textAlign:'center', color:C.muted, fontSize:13 }}>
+        This section is coming soon.
       </div>
-      <div style={{ fontSize:24, fontWeight:800, color:C.text, lineHeight:1 }}>{val}</div>
-      {sub && <div style={{ fontSize:11, color:C.muted, marginTop:5 }}>{sub}</div>}
     </div>
   )
 }
@@ -57,25 +52,30 @@ export default function Dashboard({ profile }) {
   const canAccessOS = ['hod', 'management', 'admin'].includes(profile.role)
 
   const renderPage = () => {
-    if (profile.role === 'hod') return <HODDashboard profile={profile} />
-    if (profile.role === 'management') return <ManagementDashboard profile={profile} />
-    if (profile.role === 'stores') return <StoresDashboard profile={profile} />
-
     switch(page) {
-      case 'employees':
-        return canAccessOS ? <EmployeeDirectory /> : <StaffDashboard profile={profile} setPage={setPage} />
-      case 'departments':
-        return canAccessOS ? <DepartmentManagement /> : <StaffDashboard profile={profile} setPage={setPage} />
-      case 'analytics':
-        return canAccessOS ? <Analytics /> : <StaffDashboard profile={profile} setPage={setPage} />
-      case 'admin':
-        return profile.role === 'admin' ? <AdminPanel /> : <StaffDashboard profile={profile} setPage={setPage} />
-      case 'new_request':
-        return <NewRequest profile={profile} setPage={setPage} />
-      case 'my_requests':
-        return <MyRequests profile={profile} setPage={setPage} />
+      case 'new_request': return <NewRequest profile={profile} setPage={setPage} />
+      case 'my_requests': return <MyRequests profile={profile} setPage={setPage} />
+      case 'employees':   return canAccessOS ? <ComingSoon title="Employee Directory" /> : <StaffDashboard profile={profile} setPage={setPage} />
+      case 'departments': return canAccessOS ? <ComingSoon title="Departments" /> : <StaffDashboard profile={profile} setPage={setPage} />
+      case 'analytics':   return canAccessOS ? <ComingSoon title="Analytics" /> : <StaffDashboard profile={profile} setPage={setPage} />
+      case 'admin':       return profile.role === 'admin' ? <ComingSoon title="Admin Panel" /> : <StaffDashboard profile={profile} setPage={setPage} />
       default:
+        if (profile.role === 'hod') return <HODDashboard profile={profile} />
+        if (profile.role === 'management') return <ManagementDashboard profile={profile} />
+        if (profile.role === 'stores') return <StoresDashboard profile={profile} />
         return <StaffDashboard profile={profile} setPage={setPage} />
+    }
+  }
+
+  const pageTitle = () => {
+    switch(page) {
+      case 'new_request': return 'New Requisition'
+      case 'my_requests': return 'My Requests'
+      case 'employees': return 'Employee Directory'
+      case 'departments': return 'Department Management'
+      case 'analytics': return 'Analytics'
+      case 'admin': return 'Admin Panel'
+      default: return 'Dashboard'
     }
   }
 
@@ -83,69 +83,22 @@ export default function Dashboard({ profile }) {
     <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:C.bg, fontFamily:'system-ui, sans-serif' }}>
       <Sidebar profile={profile} page={page} setPage={setPage} onSignOut={signOut} />
       <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        {/* Top bar */}
         <div style={{ height:52, background:C.card, borderBottom:`1px solid ${C.border}`, display:'flex', alignItems:'center', padding:'0 28px', gap:14, flexShrink:0, justifyContent:'space-between' }}>
-          <div style={{ fontSize:13, fontWeight:700, color:C.text }}>
-            {page === 'dashboard' ? 'Dashboard' :
-             page === 'employees' ? 'Employee Directory' :
-             page === 'departments' ? 'Department Management' :
-             page === 'analytics' ? 'Analytics' :
-             page === 'admin' ? 'Admin Panel' :
-             page === 'new_request' ? 'New Requisition' :
-             'My Requests'}
-          </div>
+          <div style={{ fontSize:13, fontWeight:700, color:C.text }}>{pageTitle()}</div>
           <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-            <NotificationBell userId={profile.id} />
             <div style={{ width:30, height:30, borderRadius:'50%', background:C.primary+'20', border:`1.5px solid ${C.primary}30`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:C.primary }}>
               {profile.full_name.charAt(0).toUpperCase()}
             </div>
-            <button
-              onClick={signOut}
+            <button onClick={signOut}
               style={{ background:'transparent', border:'none', color:C.muted, cursor:'pointer', display:'flex', alignItems:'center', gap:6, fontSize:12, padding:'4px 8px' }}
-              title="Sign Out"
-            >
+              title="Sign Out">
               <LogOut size={16} />
             </button>
           </div>
         </div>
-        {/* Content */}
         <div style={{ flex:1, overflowY:'auto' }}>
           {renderPage()}
         </div>
-      </div>
-    </div>
-  )
-}
-
-function Home({ profile, setPage }) {
-  return (
-    <div style={{ padding:'28px 32px' }}>
-      <div style={{ marginBottom:24 }}>
-        <div style={{ fontSize:20, fontWeight:800, color:C.text }}>
-          Good day, {profile.full_name.split(' ')[0]} 👋
-        </div>
-        <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>
-          {profile.departments?.name} · {profile.title}
-        </div>
-      </div>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:28 }}>
-        <StatCard label="Total Requests" val="0" sub="This year" icon="📋" color={C.primary}/>
-        <StatCard label="In Progress"    val="0" sub="Awaiting action" icon="⏳" color="#D97706"/>
-        <StatCard label="Approved"       val="0" sub="This month" icon="✅" color="#16A34A"/>
-        <StatCard label="Fulfilled"      val="0" sub="Items received" icon="📦" color="#0891B2"/>
-      </div>
-      <div style={{ background:'#18243A', borderRadius:12, padding:'20px 24px', marginBottom:28, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-        <div>
-          <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:3 }}>Need something from the store?</div>
-          <div style={{ fontSize:11, color:'#5A7A9A' }}>Submit a requisition — your HOD is notified instantly</div>
-        </div>
-        <button onClick={() => setPage('new_request')} style={{ background:C.primary, color:'#fff', border:'none', borderRadius:8, padding:'9px 18px', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
-          + New Requisition
-        </button>
-      </div>
-      <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:12 }}>Recent Requests</div>
-      <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'40px 24px', textAlign:'center', color:C.muted, fontSize:13 }}>
-        No requests yet — submit your first one above
       </div>
     </div>
   )
@@ -195,6 +148,23 @@ function NewRequest({ profile, setPage }) {
     await supabase.from('req_items').insert(
       items.filter(i => i.item_name).map(i => ({ ...i, requisition_id: req.id }))
     )
+
+    // Notify HOD by email
+    const { data: hods } = await supabase
+      .from('profiles')
+      .select('email, full_name')
+      .eq('department_id', profile.department_id)
+      .eq('role', 'hod')
+
+    if (hods && hods.length > 0 && hods[0].email) {
+      const t = emailTemplates.submitted(
+        profile.full_name,
+        req_number,
+        form.purpose,
+        hods[0].full_name
+      )
+      await sendEmail({ to: hods[0].email, ...t })
+    }
 
     setSuccess(true); setLoading(false)
   }
@@ -309,7 +279,7 @@ function MyRequests({ profile }) {
   const [reqs, setReqs] = useState([])
   const [loading, setLoading] = useState(true)
 
-  useState(() => {
+  useEffect(() => {
     supabase.from('requisitions')
       .select('*, req_items(*)')
       .eq('requester_id', profile.id)

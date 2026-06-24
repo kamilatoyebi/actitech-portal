@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function Login() {
@@ -12,7 +12,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  useState(() => {
+  useEffect(() => {
     supabase.from('departments').select('*').order('name')
       .then(({ data }) => { if (data) setDepts(data) })
   }, [])
@@ -27,7 +27,17 @@ export default function Login() {
   async function handleSignUp() {
     if (!name || !deptId) { setError('Please fill all fields'); return }
     setLoading(true); setError('')
-    const { data, error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: name,
+          role: role,
+          department_id: deptId
+        }
+      }
+    })
     if (error) { setError(error.message); setLoading(false); return }
     const { error: profileError } = await supabase.from('profiles').insert({
       id: data.user.id,
@@ -64,13 +74,11 @@ export default function Login() {
 
   return (
     <div style={{ minHeight: '100vh', background: B.dark, display: 'flex', position: 'relative', overflow: 'hidden' }}>
-      {/* Background blobs */}
       <div style={{ position: 'absolute', top: '10%', left: '15%', width: 500, height: 500, borderRadius: '50%', background: 'radial-gradient(circle, rgba(21,101,216,0.15) 0%, transparent 70%)', pointerEvents: 'none' }}/>
       <div style={{ position: 'absolute', bottom: '10%', right: '10%', width: 400, height: 400, borderRadius: '50%', background: 'radial-gradient(circle, rgba(58,172,238,0.1) 0%, transparent 70%)', pointerEvents: 'none' }}/>
 
       {/* Left panel */}
       <div style={{ width: 420, background: B.navy, borderRight: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', padding: '48px 44px', flexShrink: 0 }}>
-        {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <svg width="36" height="36" viewBox="0 0 36 36">
             <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
@@ -102,7 +110,6 @@ export default function Login() {
       {/* Right panel */}
       <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
         <div style={{ width: '100%', maxWidth: 380 }}>
-          {/* Tabs */}
           <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 4, marginBottom: 28 }}>
             {['signin', 'signup'].map(m => (
               <button key={m} onClick={() => { setMode(m); setError('') }}
@@ -115,7 +122,6 @@ export default function Login() {
             ))}
           </div>
 
-          {/* Sign In form */}
           {mode === 'signin' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div><label style={label}>Email Address</label>
@@ -131,7 +137,6 @@ export default function Login() {
             </div>
           )}
 
-          {/* Sign Up form */}
           {mode === 'signup' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div><label style={label}>Full Name</label>
