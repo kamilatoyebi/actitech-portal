@@ -2,6 +2,16 @@ import { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
+import { ToastProvider } from './components/ui/Toast'
+
+function Loader() {
+  return (
+    <div style={{ minHeight: '100vh', background: 'var(--navy)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+      <img src="/new_logo_trans.png" alt="Acti-Tech" style={{ width: 64, height: 64, objectFit: 'contain', animation: 'spin 2s linear infinite' }} />
+      <div style={{ color: 'rgba(255,255,255,0.3)', fontSize: 12, letterSpacing: '0.1em' }}>LOADING...</div>
+    </div>
+  )
+}
 
 export default function App() {
   const [session, setSession] = useState(null)
@@ -34,14 +44,9 @@ export default function App() {
     setLoading(false)
   }
 
-  if (loading) return (
-    <div style={{ background: '#080F1A', minHeight: '100vh', display: 'flex', 
-      alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ color: '#3AACEE', fontSize: 14, fontWeight: 600 }}>Loading...</div>
-    </div>
+  return (
+    <ToastProvider>
+      {loading ? <Loader /> : (!session || !profile) ? <Login /> : <Dashboard profile={profile} />}
+    </ToastProvider>
   )
-
-  if (!session || !profile) return <Login />
-
-  return <Dashboard profile={profile} />
 }
