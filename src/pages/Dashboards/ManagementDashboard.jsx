@@ -1,242 +1,134 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-import { sendEmail, emailTemplates } from '../../lib/sendEmail'
-import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
+import RequestDetail from '../RequestDetail'
+import { SkeletonCard } from '../../components/ui/Skeleton'
+import { Clock, TrendingUp, ClipboardList, CheckCircle, Eye } from 'lucide-react'
 
-const C = { primary:'#1565D8', card:'#fff', border:'#DDE5F0', text:'#18243A', muted:'#7A8EAB' }
-
-function PrintView({ req, approverName }) {
-  return (
-    <div id="print-view-mgmt" style={{ padding:32, fontFamily:'system-ui,sans-serif', background:'#fff', width:700 }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24, paddingBottom:16, borderBottom:'2px solid #18243A' }}>
-        <div>
-          <div style={{ fontSize:18, fontWeight:800, color:'#18243A' }}>ACTI-TECH LIMITED</div>
-          <div style={{ fontSize:11, color:'#7A8EAB', marginTop:2 }}>Management Approval Copy</div>
-        </div>
-        <div style={{ textAlign:'right' }}>
-          <div style={{ fontSize:11, color:'#7A8EAB' }}>Ref No.</div>
-          <div style={{ fontSize:14, fontWeight:700, color:'#1565D8' }}>{req.req_number}</div>
-          <div style={{ fontSize:11, color:'#7A8EAB', marginTop:4 }}>{new Date(req.created_at).toLocaleDateString('en-GB')}</div>
-        </div>
-      </div>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginBottom:20 }}>
-        <div><div style={{ fontSize:9, color:'#7A8EAB', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>Requested By</div>
-          <div style={{ fontSize:13, color:'#18243A', fontWeight:600 }}>{req.profiles?.full_name}</div></div>
-        <div><div style={{ fontSize:9, color:'#7A8EAB', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>Purpose</div>
-          <div style={{ fontSize:13, color:'#18243A', fontWeight:600 }}>{req.purpose}</div></div>
-        <div><div style={{ fontSize:9, color:'#7A8EAB', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>Location</div>
-          <div style={{ fontSize:13, color:'#18243A', fontWeight:600 }}>{req.location || '—'}</div></div>
-        <div><div style={{ fontSize:9, color:'#7A8EAB', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>Priority</div>
-          <div style={{ fontSize:13, color:'#18243A', fontWeight:600 }}>{req.priority}</div></div>
-      </div>
-      <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:24 }}>
-        <thead>
-          <tr style={{ background:'#18243A' }}>
-            {['S/N','Item Description','Qty','Remarks'].map(h =>
-              <th key={h} style={{ padding:'8px 12px', fontSize:9, fontWeight:700, color:'rgba(255,255,255,0.7)', textAlign:'left', textTransform:'uppercase' }}>{h}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {req.req_items?.map((item, i) => (
-            <tr key={i} style={{ borderBottom:'1px solid #DDE5F0' }}>
-              <td style={{ padding:'8px 12px', fontSize:12, color:'#7A8EAB' }}>{i+1}</td>
-              <td style={{ padding:'8px 12px', fontSize:12, color:'#18243A' }}>{item.item_name}</td>
-              <td style={{ padding:'8px 12px', fontSize:12, color:'#18243A' }}>{item.quantity}</td>
-              <td style={{ padding:'8px 12px', fontSize:12, color:'#7A8EAB' }}>{item.remarks || '—'}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:24, marginTop:32 }}>
-        <div style={{ borderTop:'1.5px solid #18243A', paddingTop:8 }}>
-          <div style={{ fontSize:10, color:'#7A8EAB' }}>Requested By</div>
-          <div style={{ fontSize:11, color:'#18243A', fontWeight:600, marginTop:2 }}>{req.profiles?.full_name}</div>
-        </div>
-        <div style={{ borderTop:'1.5px solid #18243A', paddingTop:8 }}>
-          <div style={{ fontSize:10, color:'#7A8EAB' }}>Approved By (MD)</div>
-          <div style={{ fontSize:11, color:'#18243A', fontWeight:600, marginTop:2 }}>{approverName}</div>
-        </div>
-        <div style={{ borderTop:'1.5px solid #18243A', paddingTop:8 }}>
-          <div style={{ fontSize:10, color:'#7A8EAB' }}>Date</div>
-          <div style={{ fontSize:11, color:'#18243A', fontWeight:600, marginTop:2 }}>{new Date().toLocaleDateString('en-GB')}</div>
-        </div>
-      </div>
-    </div>
-  )
+const STATUS = {
+  submitted:         { l: 'Submitted',    c: 'var(--purple)',  bg: 'var(--purple-bg)' },
+  hod_review:        { l: 'HOD Review',   c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
+  management_review: { l: 'Mgmt Review',  c: 'var(--blue)',    bg: '#DBEAFE' },
+  approved:          { l: 'Approved',     c: 'var(--green)',   bg: 'var(--green-bg)' },
+  fulfilled:         { l: 'Fulfilled',    c: 'var(--teal)',    bg: 'var(--teal-bg)' },
+  rejected:          { l: 'Rejected',     c: 'var(--red)',     bg: 'var(--red-bg)' },
 }
 
-export default function ManagementDashboard({ profile }) {
+function Pill({ status }) {
+  const s = STATUS[status] || { l: status, c: 'var(--text-3)', bg: 'var(--surface-2)' }
+  return <span className="pill" style={{ background: s.bg, color: s.c }}>{s.l}</span>
+}
+
+export default function ManagementDashboard({ profile, toast }) {
   const [reqs, setReqs] = useState([])
+  const [allReqs, setAllReqs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [acting, setActing] = useState(null)
-  const [selected, setSelected] = useState(null)
-  const [printing, setPrinting] = useState(false)
+  const [selectedReqId, setSelectedReqId] = useState(null)
+  const [tab, setTab] = useState('pending')
 
   useEffect(() => { fetchReqs() }, [])
 
   async function fetchReqs() {
     setLoading(true)
-    const { data } = await supabase
-      .from('requisitions')
-      .select('*, profiles(full_name, id, email), departments(name), req_items(*)')
-      .eq('status', 'management_review')
-      .order('created_at', { ascending: false })
-    if (data) setReqs(data)
+    const [{ data: pending }, { data: all }] = await Promise.all([
+      supabase.from('requisitions')
+        .select('*, profiles(full_name, id, email), departments(name), req_items(*)')
+        .eq('status', 'management_review')
+        .order('created_at', { ascending: false }),
+      supabase.from('requisitions')
+        .select('*, profiles(full_name, id, email), departments(name), req_items(*)')
+        .in('status', ['approved', 'fulfilled', 'rejected'])
+        .order('created_at', { ascending: false })
+        .limit(20)
+    ])
+    if (pending) setReqs(pending)
+    if (all) setAllReqs(all)
     setLoading(false)
   }
 
-  async function approve(req) {
-    setActing(req.id)
-    await supabase.from('requisitions').update({ status: 'approved' }).eq('id', req.id)
-    await supabase.from('approvals').insert({
-      requisition_id: req.id, approver_id: profile.id,
-      stage: 'management', action: 'approved'
-    })
-    if (req.profiles?.email) {
-      const t = emailTemplates.approved(req.profiles.full_name, req.req_number, req.purpose)
-      await sendEmail({ to: req.profiles.email, ...t })
-    }
-    setSelected(null)
-    await fetchReqs()
-    setActing(null)
-  }
+  if (selectedReqId) return (
+    <RequestDetail
+      reqId={selectedReqId}
+      profile={profile}
+      onBack={() => { setSelectedReqId(null); fetchReqs() }}
+    />
+  )
 
-  async function reject(req) {
-    setActing(req.id)
-    await supabase.from('requisitions').update({ status: 'rejected' }).eq('id', req.id)
-    await supabase.from('approvals').insert({
-      requisition_id: req.id, approver_id: profile.id,
-      stage: 'management', action: 'rejected'
-    })
-    if (req.profiles?.email) {
-      const t = emailTemplates.rejected(req.profiles.full_name, req.req_number, req.purpose, 'management')
-      await sendEmail({ to: req.profiles.email, ...t })
-    }
-    setSelected(null)
-    await fetchReqs()
-    setActing(null)
-  }
+  const displayed = tab === 'pending' ? reqs : allReqs
 
-  async function resubmit(req) {
-    setActing(req.id)
-    await supabase.from('requisitions').update({ status: 'submitted' }).eq('id', req.id)
-    await supabase.from('approvals').insert({
-      requisition_id: req.id, approver_id: profile.id,
-      stage: 'management', action: 'resubmit'
-    })
-    setSelected(null)
-    await fetchReqs()
-    setActing(null)
-  }
-
-  async function handlePrint(req) {
-    setPrinting(true)
-    setTimeout(async () => {
-      const el = document.getElementById('print-view-mgmt')
-      if (!el) return
-      const canvas = await html2canvas(el, { scale: 2 })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF('p', 'mm', 'a4')
-      const w = pdf.internal.pageSize.getWidth()
-      const h = (canvas.height * w) / canvas.width
-      pdf.addImage(imgData, 'PNG', 0, 0, w, h)
-      pdf.save(`${req.req_number}-management.pdf`)
-      setPrinting(false)
-    }, 300)
-  }
+  const tabs = [
+    { key: 'pending',  label: 'Pending Approval', count: reqs.length },
+    { key: 'history',  label: 'Recent History',   count: allReqs.length },
+  ]
 
   return (
-    <div style={{ padding:'28px 32px', fontFamily:'system-ui,sans-serif' }}>
-      <div style={{ fontSize:20, fontWeight:800, color:C.text, marginBottom:4 }}>Management Dashboard</div>
-      <div style={{ fontSize:11, color:C.muted, marginBottom:24 }}>{profile.title} · Final Approval Queue</div>
+    <div style={{ padding: '28px 32px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div className="page-header">
+        <div className="page-title">Management Dashboard</div>
+        <div className="page-sub">{profile.title || 'Management'} · Approval Queue</div>
+      </div>
 
-      {loading
-        ? <div style={{ color:C.muted }}>Loading...</div>
-        : reqs.length === 0
-        ? <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10,
-            padding:'40px', textAlign:'center', color:C.muted, fontSize:13 }}>
-            No pending approvals — all clear 🎉
-          </div>
-        : reqs.map(r => (
-          <div key={r.id}>
-            <div onClick={() => setSelected(selected?.id === r.id ? null : r)}
-              style={{ background:C.card, border:`1px solid ${selected?.id === r.id ? C.primary : C.border}`,
-                borderRadius:10, padding:'16px 20px', marginBottom: selected?.id === r.id ? 0 : 12,
-                cursor:'pointer', borderBottomLeftRadius: selected?.id === r.id ? 0 : 10,
-                borderBottomRightRadius: selected?.id === r.id ? 0 : 10 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <div>
-                  <div style={{ fontSize:11, color:C.primary, fontWeight:700, marginBottom:4 }}>{r.req_number}</div>
-                  <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:3 }}>{r.purpose}</div>
-                  <div style={{ fontSize:11, color:C.muted }}>
-                    By {r.profiles?.full_name} · {r.req_items?.length} item(s) · {r.priority}
-                    {r.location ? ` · ${r.location}` : ''}
-                  </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 28 }}>
+        {[
+          { label: 'Pending Approval',  val: reqs.length, icon: Clock,         color: 'var(--blue)' },
+          { label: 'Urgent',            val: reqs.filter(r => r.priority === 'Urgent').length, icon: TrendingUp, color: 'var(--red)' },
+          { label: 'Total Items',       val: reqs.reduce((a, r) => a + (r.req_items?.length || 0), 0), icon: ClipboardList, color: 'var(--green)' },
+        ].map(s => {
+          const Icon = s.icon
+          return (
+            <div key={s.label} className="stat-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{s.label}</span>
+                <div style={{ width: 32, height: 32, borderRadius: 'var(--r)', background: s.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon size={15} color={s.color} />
                 </div>
-                <div style={{ fontSize:11, color:C.muted }}>{selected?.id === r.id ? '▲' : '▼'}</div>
               </div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-1)' }}>{s.val}</div>
             </div>
+          )
+        })}
+      </div>
 
-            {selected?.id === r.id && (
-              <div style={{ background:'#F8FAFC', border:`1px solid ${C.primary}`,
-                borderTop:'none', borderRadius:'0 0 10px 10px', padding:'20px', marginBottom:12 }}>
-                <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:16 }}>
-                  <thead>
-                    <tr style={{ background:'#18243A' }}>
-                      {['S/N','Item','Qty','Remarks'].map(h =>
-                        <th key={h} style={{ padding:'8px 12px', fontSize:9, fontWeight:700,
-                          color:'rgba(255,255,255,0.6)', textAlign:'left', textTransform:'uppercase' }}>{h}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {r.req_items?.map((item, i) => (
-                      <tr key={i} style={{ borderBottom:`1px solid ${C.border}`, background:'#fff' }}>
-                        <td style={{ padding:'8px 12px', fontSize:11, color:C.muted }}>{i+1}</td>
-                        <td style={{ padding:'8px 12px', fontSize:12, color:C.text }}>{item.item_name}</td>
-                        <td style={{ padding:'8px 12px', fontSize:12, color:C.text }}>{item.quantity}</td>
-                        <td style={{ padding:'8px 12px', fontSize:11, color:C.muted }}>{item.remarks || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {r.comments && (
-                  <div style={{ background:'#fff', border:`1px solid ${C.border}`, borderRadius:8,
-                    padding:12, marginBottom:16, fontSize:12, color:C.text }}>
-                    <strong>Comments:</strong> {r.comments}
-                  </div>
-                )}
-                <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-                  <button onClick={() => handlePrint(r)} disabled={printing}
-                    style={{ padding:'7px 14px', background:'#F1F5F9', border:`1px solid ${C.border}`,
-                      borderRadius:7, fontSize:11, fontWeight:700, color:C.text, cursor:'pointer' }}>
-                    {printing ? 'Generating...' : '🖨 Print'}
-                  </button>
-                  <button onClick={() => reject(r)} disabled={acting === r.id}
-                    style={{ padding:'7px 14px', background:'#FEE2E2', border:'none', borderRadius:7,
-                      fontSize:11, fontWeight:700, color:'#B91C1C', cursor:'pointer', opacity: acting === r.id ? 0.6 : 1 }}>
-                    Reject
-                  </button>
-                  <button onClick={() => resubmit(r)} disabled={acting === r.id}
-                    style={{ padding:'7px 14px', background:'#FEF3C7', border:'none', borderRadius:7,
-                      fontSize:11, fontWeight:700, color:'#B45309', cursor:'pointer', opacity: acting === r.id ? 0.6 : 1 }}>
-                    Send Back
-                  </button>
-                  <button onClick={() => approve(r)} disabled={acting === r.id}
-                    style={{ padding:'7px 18px', background:C.primary, border:'none', borderRadius:7,
-                      fontSize:11, fontWeight:700, color:'#fff', cursor:'pointer', opacity: acting === r.id ? 0.6 : 1 }}>
-                    {acting === r.id ? 'Processing...' : '✓ Approve'}
-                  </button>
-                </div>
-              </div>
-            )}
+      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid var(--border)', marginBottom: 16 }}>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: tab === t.key ? 700 : 500, color: tab === t.key ? 'var(--blue)' : 'var(--text-3)', borderBottom: tab === t.key ? '2px solid var(--blue)' : '2px solid transparent', marginBottom: -1, transition: 'all var(--t-fast)' }}>
+            {t.label}
+            {t.count > 0 && <span style={{ fontSize: 10, background: tab === t.key ? 'var(--blue)' : 'var(--surface-2)', color: tab === t.key ? '#fff' : 'var(--text-3)', padding: '1px 6px', borderRadius: 99, fontWeight: 700 }}>{t.count}</span>}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div>{[1,2,3].map(i => <SkeletonCard key={i} />)}</div>
+      ) : displayed.length === 0 ? (
+        <div className="card empty-state">
+          <CheckCircle size={36} color="var(--green)" style={{ opacity: 0.4 }} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>
+            {tab === 'pending' ? 'No pending approvals' : 'No recent history'}
           </div>
-        ))
-      }
-
-      {printing && selected && (
-        <div style={{ position:'fixed', left:'-9999px', top:0 }}>
-          <PrintView req={selected} approverName={profile.full_name} />
+        </div>
+      ) : (
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <table className="table">
+            <thead>
+              <tr><th>Ref No.</th><th>Purpose</th><th>Requester</th><th>Department</th><th>Items</th><th>Priority</th><th>Status</th><th>Date</th><th></th></tr>
+            </thead>
+            <tbody>
+              {displayed.map(r => (
+                <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedReqId(r.id)}>
+                  <td style={{ fontWeight: 700, color: 'var(--blue)', fontSize: 12 }}>{r.req_number}</td>
+                  <td style={{ fontWeight: 500 }}>{r.purpose}</td>
+                  <td style={{ color: 'var(--text-2)' }}>{r.profiles?.full_name}</td>
+                  <td style={{ color: 'var(--text-3)', fontSize: 12 }}>{r.departments?.name}</td>
+                  <td style={{ color: 'var(--text-3)' }}>{r.req_items?.length}</td>
+                  <td><span className="pill" style={{ background: r.priority === 'Urgent' ? 'var(--yellow-bg)' : 'var(--surface-2)', color: r.priority === 'Urgent' ? 'var(--yellow)' : 'var(--text-3)' }}>{r.priority}</span></td>
+                  <td><Pill status={r.status} /></td>
+                  <td style={{ color: 'var(--text-3)', fontSize: 12 }}>{new Date(r.created_at).toLocaleDateString('en-GB')}</td>
+                  <td><Eye size={14} color="var(--text-3)" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

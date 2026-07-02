@@ -1,140 +1,138 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
-
-const C = {
-  primary:'#1565D8', light:'#3AACEE', bg:'#F2F5FB',
-  card:'#fff', border:'#DDE5F0', text:'#18243A', muted:'#7A8EAB',
-}
+import RequestDetail from '../RequestDetail'
+import { SkeletonCard } from '../../components/ui/Skeleton'
+import { FileText, Clock, CheckCircle, Package, Plus, ArrowRight, Eye } from 'lucide-react'
 
 const STATUS = {
-  draft:             { l:'Draft',        c:'#7A8EAB', bg:'#F1F5F9' },
-  submitted:         { l:'Submitted',    c:'#7C3AED', bg:'#EDE9FE' },
-  hod_review:        { l:'HOD Review',   c:'#B45309', bg:'#FEF3C7' },
-  management_review: { l:'Mgmt Review',  c:'#1565D8', bg:'#DBEAFE' },
-  approved:          { l:'Approved',     c:'#15803D', bg:'#DCFCE7' },
-  fulfilled:         { l:'Fulfilled',    c:'#0369A1', bg:'#E0F2FE' },
-  rejected:          { l:'Rejected',     c:'#B91C1C', bg:'#FEE2E2' },
+  draft:             { l: 'Draft',        c: 'var(--text-3)',  bg: 'var(--surface-2)' },
+  submitted:         { l: 'Submitted',    c: 'var(--purple)',  bg: 'var(--purple-bg)' },
+  hod_review:        { l: 'HOD Review',   c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
+  management_review: { l: 'Mgmt Review',  c: 'var(--blue)',    bg: '#DBEAFE' },
+  approved:          { l: 'Approved',     c: 'var(--green)',   bg: 'var(--green-bg)' },
+  fulfilled:         { l: 'Fulfilled',    c: 'var(--teal)',    bg: 'var(--teal-bg)' },
+  rejected:          { l: 'Rejected',     c: 'var(--red)',     bg: 'var(--red-bg)' },
 }
 
 function Pill({ status }) {
   const s = STATUS[status] || STATUS.draft
-  return (
-    <span style={{ background:s.bg, color:s.c, padding:'3px 9px',
-      borderRadius:20, fontSize:10, fontWeight:700, whiteSpace:'nowrap' }}>
-      {s.l}
-    </span>
-  )
+  return <span className="pill" style={{ background: s.bg, color: s.c }}>{s.l}</span>
 }
 
 export default function StaffDashboard({ profile, setPage }) {
   const [reqs, setReqs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selectedReqId, setSelectedReqId] = useState(null)
 
-  useEffect(() => {
-    supabase.from('requisitions')
+  useEffect(() => { fetchReqs() }, [])
+
+  async function fetchReqs() {
+    setLoading(true)
+    const { data } = await supabase.from('requisitions')
       .select('*, req_items(*)')
       .eq('requester_id', profile.id)
       .order('created_at', { ascending: false })
-      .then(({ data }) => { if (data) setReqs(data); setLoading(false) })
-  }, [])
+    if (data) setReqs(data)
+    setLoading(false)
+  }
 
-  const total    = reqs.length
-  const pending  = reqs.filter(r => ['submitted','hod_review','management_review'].includes(r.status)).length
-  const approved = reqs.filter(r => r.status === 'approved').length
-  const fulfilled= reqs.filter(r => r.status === 'fulfilled').length
+  if (selectedReqId) return (
+    <RequestDetail
+      reqId={selectedReqId}
+      profile={profile}
+      onBack={() => { setSelectedReqId(null); fetchReqs() }}
+    />
+  )
+
+  const total     = reqs.length
+  const pending   = reqs.filter(r => ['submitted','hod_review','management_review'].includes(r.status)).length
+  const approved  = reqs.filter(r => r.status === 'approved').length
+  const fulfilled = reqs.filter(r => r.status === 'fulfilled').length
+
+  const stats = [
+    { label: 'Total Requests', val: total,     icon: FileText,    color: 'var(--blue)' },
+    { label: 'In Progress',    val: pending,   icon: Clock,       color: 'var(--yellow)' },
+    { label: 'Approved',       val: approved,  icon: CheckCircle, color: 'var(--green)' },
+    { label: 'Fulfilled',      val: fulfilled, icon: Package,     color: 'var(--teal)' },
+  ]
 
   return (
-    <div style={{ padding:'28px 32px', fontFamily:'system-ui,sans-serif' }}>
-      {/* Header */}
-      <div style={{ marginBottom:24 }}>
-        <div style={{ fontSize:20, fontWeight:800, color:C.text }}>
+    <div style={{ padding: '28px 32px', fontFamily: 'Inter, system-ui, sans-serif' }}>
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-1)', marginBottom: 4 }}>
           Good day, {profile.full_name.split(' ')[0]} 👋
         </div>
-        <div style={{ fontSize:11, color:C.muted, marginTop:3 }}>
-          {profile.departments?.name} · {profile.title}
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          {profile.departments?.name} · {profile.title || 'Staff'}
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:28 }}>
-        {[
-          { label:'Total Requests', val:total,    sub:'All time',       icon:'📋', color:C.primary },
-          { label:'In Progress',    val:pending,  sub:'Awaiting action',icon:'⏳', color:'#D97706' },
-          { label:'Approved',       val:approved, sub:'This year',      icon:'✅', color:'#16A34A' },
-          { label:'Fulfilled',      val:fulfilled,sub:'Items received',  icon:'📦', color:'#0891B2' },
-        ].map(s => (
-          <div key={s.label} style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, padding:'16px 18px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <span style={{ fontSize:9, color:C.muted, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em' }}>{s.label}</span>
-              <span style={{ fontSize:18 }}>{s.icon}</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 28 }}>
+        {stats.map(s => {
+          const Icon = s.icon
+          return (
+            <div key={s.label} className="stat-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600 }}>{s.label}</span>
+                <div style={{ width: 32, height: 32, borderRadius: 'var(--r)', background: s.color + '15', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon size={15} color={s.color} />
+                </div>
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-1)', lineHeight: 1 }}>{s.val}</div>
             </div>
-            <div style={{ fontSize:24, fontWeight:800, color:C.text, lineHeight:1 }}>{s.val}</div>
-            <div style={{ fontSize:11, color:C.muted, marginTop:5 }}>{s.sub}</div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
-      {/* CTA Banner */}
-      <div style={{ background:'#18243A', borderRadius:12, padding:'20px 24px', marginBottom:28,
-        display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <div style={{ background: 'var(--navy)', borderRadius: 'var(--r-lg)', padding: '22px 28px', marginBottom: 28, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:3 }}>
-            Need something from the store?
-          </div>
-          <div style={{ fontSize:11, color:'#5A7A9A' }}>
-            Submit a requisition — your HOD is notified instantly
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Need something from the store?</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>Submit a requisition — your HOD is notified instantly</div>
         </div>
-        <button onClick={() => setPage('new_request')}
-          style={{ background:C.primary, color:'#fff', border:'none', borderRadius:8,
-            padding:'9px 18px', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
-          + New Requisition
+        <button onClick={() => setPage('new_request')} className="btn btn-primary">
+          <Plus size={14} /> New Requisition
         </button>
       </div>
 
-      {/* Requests Table */}
-      <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:12 }}>My Requests</div>
-      {loading
-        ? <div style={{ color:C.muted, fontSize:13 }}>Loading...</div>
-        : reqs.length === 0
-        ? <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10,
-            padding:'40px 24px', textAlign:'center', color:C.muted, fontSize:13 }}>
-            No requests yet — submit your first one above
-          </div>
-        : <div style={{ background:C.card, border:`1px solid ${C.border}`, borderRadius:10, overflow:'hidden' }}>
-            <table style={{ width:'100%', borderCollapse:'collapse' }}>
-              <thead>
-                <tr style={{ background:'#18243A' }}>
-                  {['Req No.','Purpose','Items','Priority','Status','Date'].map(h =>
-                    <th key={h} style={{ padding:'10px 14px', fontSize:9, fontWeight:700,
-                      color:'rgba(255,255,255,0.5)', textAlign:'left',
-                      letterSpacing:'0.07em', textTransform:'uppercase' }}>{h}</th>
-                  )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>My Requests</div>
+        {reqs.length > 0 && (
+          <button onClick={() => setPage('my_requests')} className="btn btn-ghost btn-sm">
+            View all <ArrowRight size={12} />
+          </button>
+        )}
+      </div>
+
+      {loading ? (
+        <div>{[1,2,3].map(i => <SkeletonCard key={i} />)}</div>
+      ) : reqs.length === 0 ? (
+        <div className="card empty-state">
+          <FileText size={40} style={{ opacity: 0.3 }} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>No requests yet</div>
+          <p>Submit your first requisition using the button above.</p>
+        </div>
+      ) : (
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <table className="table">
+            <thead>
+              <tr><th>Ref No.</th><th>Purpose</th><th>Items</th><th>Priority</th><th>Status</th><th>Date</th><th></th></tr>
+            </thead>
+            <tbody>
+              {reqs.slice(0, 8).map(r => (
+                <tr key={r.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedReqId(r.id)}>
+                  <td style={{ fontWeight: 700, color: 'var(--blue)', fontSize: 12 }}>{r.req_number}</td>
+                  <td style={{ fontWeight: 500 }}>{r.purpose}</td>
+                  <td style={{ color: 'var(--text-3)' }}>{r.req_items?.length} item{r.req_items?.length !== 1 ? 's' : ''}</td>
+                  <td><span className="pill" style={{ background: r.priority === 'Urgent' ? 'var(--yellow-bg)' : 'var(--surface-2)', color: r.priority === 'Urgent' ? 'var(--yellow)' : 'var(--text-3)' }}>{r.priority}</span></td>
+                  <td><Pill status={r.status} /></td>
+                  <td style={{ color: 'var(--text-3)', fontSize: 12 }}>{new Date(r.created_at).toLocaleDateString('en-GB')}</td>
+                  <td><Eye size={14} color="var(--text-3)" /></td>
                 </tr>
-              </thead>
-              <tbody>
-                {reqs.map((r, i) => (
-                  <tr key={r.id} style={{ borderBottom: i < reqs.length-1 ? `1px solid ${C.border}` : 'none' }}>
-                    <td style={{ padding:'11px 14px', fontSize:11, fontWeight:700, color:C.primary }}>{r.req_number}</td>
-                    <td style={{ padding:'11px 14px', fontSize:12, color:C.text }}>{r.purpose}</td>
-                    <td style={{ padding:'11px 14px', fontSize:12, color:C.muted }}>{r.req_items?.length} item(s)</td>
-                    <td style={{ padding:'11px 14px' }}>
-                      <span style={{ background:r.priority==='Urgent'?'#FEF3C7':'#F1F5F9',
-                        color:r.priority==='Urgent'?'#B45309':'#7A8EAB',
-                        padding:'2px 8px', borderRadius:20, fontSize:9, fontWeight:700 }}>
-                        {r.priority}
-                      </span>
-                    </td>
-                    <td style={{ padding:'11px 14px' }}><Pill status={r.status}/></td>
-                    <td style={{ padding:'11px 14px', fontSize:11, color:C.muted }}>
-                      {new Date(r.created_at).toLocaleDateString('en-GB')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-      }
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }
