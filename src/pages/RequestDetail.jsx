@@ -9,7 +9,7 @@ import {
   ArrowLeft, Clock, CheckCircle, XCircle, RotateCcw,
   Printer, Send, Package, ChevronDown, ChevronUp,
   User, Calendar, MapPin, Tag, MessageSquare, Activity,
-  AlertTriangle, FileText
+  AlertTriangle, FileText, Building2
 } from 'lucide-react'
 
 const STATUS = {
