@@ -19,6 +19,9 @@ const STATUS = {
   management_review: { l: 'Mgmt Review',   c: 'var(--blue)',    bg: '#DBEAFE' },
   approved:          { l: 'Approved',      c: 'var(--green)',   bg: 'var(--green-bg)' },
   fulfilled:         { l: 'Fulfilled',     c: 'var(--teal)',    bg: 'var(--teal-bg)' },
+  outsourcing:       { l: 'Outsourcing',   c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
+  payment_review:    { l: 'Payment Review', c: 'var(--blue)',   bg: '#DBEAFE' },
+  completed:         { l: 'Completed',     c: 'var(--green)',   bg: 'var(--green-bg)' },
   rejected:          { l: 'Rejected',      c: 'var(--red)',     bg: 'var(--red-bg)' },
 }
 
@@ -40,6 +43,10 @@ function TimelineEvent({ event }) {
     management_rejected: <XCircle size={14} color="var(--red)" />,
     management_resubmit: <RotateCcw size={14} color="var(--yellow)" />,
     fulfilled:         <Package size={14} color="var(--teal)" />,
+    stores_unavailable: <AlertTriangle size={14} color="var(--yellow)" />,
+    admin_forwarded_to_accounts: <Send size={14} color="var(--blue)" />,
+    accounts_payment_approved: <CheckCircle size={14} color="var(--green)" />,
+    accounts_payment_rejected: <RotateCcw size={14} color="var(--yellow)" />,
     resubmit:          <RotateCcw size={14} color="var(--yellow)" />,
     approved:          <CheckCircle size={14} color="var(--green)" />,
     rejected:          <XCircle size={14} color="var(--red)" />,
@@ -53,6 +60,10 @@ function TimelineEvent({ event }) {
     management_rejected: 'Rejected by Management',
     management_resubmit: 'Returned to HOD by Management',
     fulfilled:           'Fulfilled by Stores',
+    stores_unavailable:  'Items marked unavailable — sent for outsourcing',
+    admin_forwarded_to_accounts: 'Outsourcing details forwarded to Accounts',
+    accounts_payment_approved: 'Payment approved — request completed',
+    accounts_payment_rejected: 'Payment returned to Admin for review',
     resubmit:            'Returned for revision',
     approved:            'Approved',
     rejected:            'Rejected',
@@ -272,6 +283,8 @@ export default function RequestDetail({ reqId, profile, onBack }) {
   const [printing, setPrinting] = useState(false)
   const [actionComment, setActionComment] = useState('')
   const [showCommentForAction, setShowCommentForAction] = useState(null)
+  const [outsourcingItems, setOutsourcingItems] = useState([])
+  const [paymentReference, setPaymentReference] = useState('')
   const [activeTab, setActiveTab] = useState('details')
   const toast = useToast()
 
@@ -289,12 +302,21 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         .eq('requisition_id', reqId)
         .order('created_at', { ascending: true })
     ])
-    if (reqData) setReq(reqData)
+    if (reqData) {
+      setReq(reqData)
+      setOutsourcingItems(reqData.req_items?.map(item => ({
+        id: item.id,
+        outsourcing_vendor: item.outsourcing_vendor || '',
+        outsourcing_cost: item.outsourcing_cost ?? '',
+        outsourcing_reason: item.outsourcing_reason || '',
+        outsourcing_notes: item.outsourcing_notes || '',
+      })) || [])
+    }
     if (timelineData) setTimeline(timelineData)
     setLoading(false)
   }
 
-  async function takeAction(action, comment = '') {
+  async function takeAction(action, comment = '', reference = '') {
     setActing(true)
     const statusMap = {
       hod_authorize:          'management_review',
@@ -304,33 +326,63 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       management_reject:      'rejected',
       management_return:      'submitted',
       stores_fulfill:         'fulfilled',
-      stores_return:          'approved',
+      stores_return:          'outsourcing',
+      admin_forward_accounts: 'payment_review',
+      accounts_approve_payment: 'completed',
+      accounts_reject_payment: 'outsourcing',
     }
 
     const stageMap = {
       hod_authorize: 'hod', hod_reject: 'hod', hod_return: 'hod',
       management_approve: 'management', management_reject: 'management', management_return: 'management',
       stores_fulfill: 'stores', stores_return: 'stores',
+      admin_forward_accounts: 'admin',
+      accounts_approve_payment: 'accounts', accounts_reject_payment: 'accounts',
     }
 
     const actionLabelMap = {
       hod_authorize: 'approved', hod_reject: 'rejected', hod_return: 'resubmit',
       management_approve: 'approved', management_reject: 'rejected', management_return: 'resubmit',
-      stores_fulfill: 'fulfilled', stores_return: 'resubmit',
+      stores_fulfill: 'fulfilled', stores_return: 'unavailable',
+      admin_forward_accounts: 'forwarded_to_accounts',
+      accounts_approve_payment: 'payment_approved', accounts_reject_payment: 'payment_rejected',
     }
 
     const newStatus = statusMap[action]
     const stage = stageMap[action]
     const actionLabel = actionLabelMap[action]
 
-    await supabase.from('requisitions').update({ status: newStatus }).eq('id', reqId)
-    await supabase.from('approvals').insert({
+    if (action === 'admin_forward_accounts') {
+      const results = await Promise.all(outsourcingItems.map(item =>
+        supabase.from('req_items').update({
+          outsourcing_vendor: item.outsourcing_vendor || null,
+          outsourcing_cost: item.outsourcing_cost === '' ? null : Number(item.outsourcing_cost),
+          outsourcing_reason: item.outsourcing_reason || null,
+          outsourcing_notes: item.outsourcing_notes || null,
+        }).eq('id', item.id)
+      ))
+      const error = results.find(result => result.error)?.error
+      if (error) { toast(error.message, 'error'); setActing(false); return }
+    }
+
+    if (action === 'accounts_approve_payment') {
+      const results = await Promise.all(req.req_items.map(item =>
+        supabase.from('req_items').update({ payment_reference: reference }).eq('id', item.id)
+      ))
+      const error = results.find(result => result.error)?.error
+      if (error) { toast(error.message, 'error'); setActing(false); return }
+    }
+
+    const { error: statusError } = await supabase.from('requisitions').update({ status: newStatus }).eq('id', reqId)
+    if (statusError) { toast(statusError.message, 'error'); setActing(false); return }
+    const { error: approvalError } = await supabase.from('approvals').insert({
       requisition_id: reqId,
       approver_id: profile.id,
       stage,
       action: actionLabel,
       comment: comment || null,
     })
+    if (approvalError) { toast(approvalError.message, 'error'); setActing(false); return }
 
     // Emails
     if (action === 'hod_authorize') {
@@ -352,6 +404,14 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         await sendEmail({ to: req.profiles.email, ...t })
       }
       toast('Marked as fulfilled — requester notified', 'success')
+    } else if (action === 'stores_return') {
+      toast('Marked unavailable and sent to Admin for outsourcing', 'warning')
+    } else if (action === 'admin_forward_accounts') {
+      toast('Outsourcing details saved and sent to Accounts', 'success')
+    } else if (action === 'accounts_approve_payment') {
+      toast('Payment approved — request completed', 'success')
+    } else if (action === 'accounts_reject_payment') {
+      toast('Payment returned to Admin for review', 'warning')
     } else if (action.includes('reject')) {
       if (req.profiles?.email) {
         const t = emailTemplates.rejected(req.profiles.full_name, req.req_number, req.purpose, stage)
@@ -363,6 +423,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     }
 
     setActionComment('')
+    setPaymentReference('')
     setShowCommentForAction(null)
     setConfirm(null)
     await fetchAll()
@@ -430,9 +491,23 @@ export default function RequestDetail({ reqId, profile, onBack }) {
               placeholder="Explain your decision, recommend alternatives, or add context..."
               style={{ marginBottom: 10, resize: 'none' }}
             />
+            {actionKey === 'accounts_approve_payment' && (
+              <input
+                className="input"
+                value={paymentReference}
+                onChange={e => setPaymentReference(e.target.value)}
+                placeholder="Payment reference"
+                style={{ marginBottom: 10 }}
+              />
+            )}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowCommentForAction(null); setActionComment('') }} className="btn btn-secondary btn-sm">Cancel</button>
-              <button onClick={() => setConfirm({ actionKey, comment: actionComment })} className={`btn ${btnClass} btn-sm`} disabled={acting}>
+              <button onClick={() => {
+                if (actionKey === 'accounts_approve_payment' && !paymentReference.trim()) {
+                  toast('Enter the payment reference before approving', 'error'); return
+                }
+                setConfirm({ actionKey, comment: actionComment, paymentReference })
+              }} className={`btn ${btnClass} btn-sm`} disabled={acting}>
                 <Icon size={13} /> Confirm {label}
               </button>
             </div>
@@ -476,9 +551,23 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         {role === 'stores' && status === 'approved' && (
           <>
             <ActionWithComment actionKey="stores_return" label="Flag Unavailable" btnClass="btn-warning" icon={AlertTriangle}
-              confirmTitle="Flag as Unavailable" confirmMsg="Flag items as unavailable and notify the HOD?" />
+              confirmTitle="Flag as Unavailable" confirmMsg="Flag items as unavailable and send to Admin for outsourcing?" />
             <ActionWithComment actionKey="stores_fulfill" label="Mark Fulfilled" btnClass="btn-primary" icon={Package}
               confirmTitle="Mark as Fulfilled" confirmMsg="Confirm all items have been issued to the requester?" />
+          </>
+        )}
+
+        {role === 'admin' && status === 'outsourcing' && (
+          <ActionWithComment actionKey="admin_forward_accounts" label="Forward to Accounts" btnClass="btn-primary" icon={Send}
+            confirmTitle="Forward to Accounts" confirmMsg="Save outsourcing details and send this request to Accounts for payment review?" />
+        )}
+
+        {role === 'accounts' && status === 'payment_review' && (
+          <>
+            <ActionWithComment actionKey="accounts_reject_payment" label="Return to Admin" btnClass="btn-warning" icon={RotateCcw}
+              confirmTitle="Return to Admin" confirmMsg="Return this request to Admin for outsourcing review?" />
+            <ActionWithComment actionKey="accounts_approve_payment" label="Approve Payment" btnClass="btn-success" icon={CheckCircle}
+              confirmTitle="Approve Payment" confirmMsg="Record the payment reference and complete this request?" />
           </>
         )}
       </div>
@@ -579,6 +668,29 @@ export default function RequestDetail({ reqId, profile, onBack }) {
               </div>
             )}
           </div>
+
+          {profile.role === 'admin' && req.status === 'outsourcing' && (
+            <div className="card" style={{ padding: 20, gridColumn: '1 / -1' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Outsourcing Details</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {req.req_items?.map((item, index) => {
+                  const details = outsourcingItems[index] || {}
+                  const updateDetails = (field, value) => setOutsourcingItems(items => items.map((current, itemIndex) => itemIndex === index ? { ...current, [field]: value } : current))
+                  return (
+                    <div key={item.id} style={{ padding: 14, border: '1px solid var(--border)', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)', marginBottom: 10 }}>{item.item_name}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 10, marginBottom: 10 }}>
+                        <input className="input" value={details.outsourcing_vendor || ''} onChange={e => updateDetails('outsourcing_vendor', e.target.value)} placeholder="Vendor" />
+                        <input className="input" type="number" min="0" step="0.01" value={details.outsourcing_cost ?? ''} onChange={e => updateDetails('outsourcing_cost', e.target.value)} placeholder="Cost" />
+                      </div>
+                      <input className="input" value={details.outsourcing_reason || ''} onChange={e => updateDetails('outsourcing_reason', e.target.value)} placeholder="Outsourcing reason" style={{ marginBottom: 10 }} />
+                      <textarea className="input" rows={2} value={details.outsourcing_notes || ''} onChange={e => updateDetails('outsourcing_notes', e.target.value)} placeholder="Notes" style={{ resize: 'vertical' }} />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -610,13 +722,16 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       <ConfirmModal
         open={!!confirm}
         onClose={() => { setConfirm(null); setShowCommentForAction(null) }}
-        onConfirm={() => takeAction(confirm.actionKey, confirm.comment)}
+        onConfirm={() => takeAction(confirm.actionKey, confirm.comment, confirm.paymentReference)}
         title={
           confirm?.actionKey?.includes('authorize') ? 'Authorize Request' :
           confirm?.actionKey?.includes('approve') ? 'Approve Request' :
           confirm?.actionKey?.includes('reject') ? 'Reject Request' :
           confirm?.actionKey?.includes('return') ? 'Return for Revision' :
           confirm?.actionKey?.includes('fulfill') ? 'Mark as Fulfilled' :
+          confirm?.actionKey === 'admin_forward_accounts' ? 'Forward to Accounts' :
+          confirm?.actionKey === 'accounts_approve_payment' ? 'Approve Payment' :
+          confirm?.actionKey === 'accounts_reject_payment' ? 'Return to Admin' :
           confirm?.actionKey?.includes('unavailable') ? 'Flag as Unavailable' : 'Confirm Action'
         }
         message={
@@ -627,7 +742,10 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey === 'management_return' ? 'Return this requisition to the HOD for further review?' :
           confirm?.actionKey === 'management_reject' ? 'Reject this requisition? The requester will be notified by email.' :
           confirm?.actionKey === 'stores_fulfill' ? 'Confirm all items have been issued to the requester? They will be notified by email.' :
-          confirm?.actionKey === 'stores_return' ? 'Flag items as unavailable? The HOD will be notified.' :
+          confirm?.actionKey === 'stores_return' ? 'Flag items as unavailable and send this request to Admin for outsourcing?' :
+          confirm?.actionKey === 'admin_forward_accounts' ? 'Save the outsourcing details and send this request to Accounts for payment review?' :
+          confirm?.actionKey === 'accounts_approve_payment' ? 'Approve payment and complete this request?' :
+          confirm?.actionKey === 'accounts_reject_payment' ? 'Return this request to Admin for outsourcing review?' :
           'Are you sure?'
         }
         confirmLabel={
@@ -635,7 +753,10 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey?.includes('approve') ? 'Approve' :
           confirm?.actionKey?.includes('reject') ? 'Reject' :
           confirm?.actionKey?.includes('return') || confirm?.actionKey?.includes('flag') ? 'Confirm' :
-          confirm?.actionKey?.includes('fulfill') ? 'Mark Fulfilled' : 'Confirm'
+          confirm?.actionKey?.includes('fulfill') ? 'Mark Fulfilled' :
+          confirm?.actionKey === 'admin_forward_accounts' ? 'Forward' :
+          confirm?.actionKey === 'accounts_approve_payment' ? 'Approve Payment' :
+          confirm?.actionKey === 'accounts_reject_payment' ? 'Return to Admin' : 'Confirm'
         }
         danger={confirm?.actionKey?.includes('reject')}
       />

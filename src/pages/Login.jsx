@@ -38,7 +38,8 @@ export default function Login() {
       id: data.user.id, full_name: name, role, department_id: deptId,
       email,
       title: role === 'staff' ? 'Staff' : role === 'hod' ? 'Head of Department' :
-             role === 'management' ? 'Management' : 'Store Manager'
+             role === 'management' ? 'Management' : role === 'stores' ? 'Store Manager' :
+             role === 'admin' ? 'Administrator' : 'Accounts'
     })
     if (profileError) setError(profileError.message)
     setLoading(false)
@@ -158,7 +159,7 @@ export default function Login() {
               <div>
                 <label className="label" style={{ color: 'rgba(255,255,255,0.4)' }}>Role</label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  {[['staff','Staff'],['hod','HOD'],['management','Management'],['stores','Stores']].map(([k, l]) => (
+                  {[['staff','Staff'],['hod','HOD'],['management','Management'],['stores','Stores'],['admin','Admin'],['accounts','Accounts']].map(([k, l]) => (
                     <button key={k} onClick={() => setRole(k)}
                       style={{ padding: '9px', border: `1.5px solid ${role === k ? 'var(--blue)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 8, background: role === k ? 'rgba(26,86,219,0.2)' : 'transparent', color: role === k ? '#fff' : 'rgba(255,255,255,0.35)', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all var(--t-fast)' }}>
                       {l}

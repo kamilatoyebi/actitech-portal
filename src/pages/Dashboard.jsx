@@ -2,6 +2,8 @@ import HODDashboard from './Dashboards/HODDashboard'
 import ManagementDashboard from './Dashboards/ManagementDashboard'
 import StoresDashboard from './Dashboards/StoresDashboard'
 import StaffDashboard from './Dashboards/StaffDashboard'
+import AdminDashboard from './Dashboards/AdminDashboard'
+import AccountsDashboard from './Dashboards/AccountsDashboard'
 
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
@@ -57,11 +59,13 @@ export default function Dashboard({ profile }) {
       case 'employees':   return canAccessOS ? <ComingSoon title="Employee Directory" /> : <StaffDashboard profile={profile} setPage={setPage} />
       case 'departments': return canAccessOS ? <ComingSoon title="Departments" /> : <StaffDashboard profile={profile} setPage={setPage} />
       case 'analytics':   return canAccessOS ? <ComingSoon title="Analytics" /> : <StaffDashboard profile={profile} setPage={setPage} />
-      case 'admin':       return profile.role === 'admin' ? <ComingSoon title="Admin Panel" /> : <StaffDashboard profile={profile} setPage={setPage} />
+      case 'admin':       return profile.role === 'admin' ? <AdminDashboard profile={profile} /> : <StaffDashboard profile={profile} setPage={setPage} />
       default:
         if (profile.role === 'hod') return <HODDashboard profile={profile} toast={toast} />
         if (profile.role === 'management') return <ManagementDashboard profile={profile} toast={toast} />
         if (profile.role === 'stores') return <StoresDashboard profile={profile} toast={toast} />
+        if (profile.role === 'admin') return <AdminDashboard profile={profile} />
+        if (profile.role === 'accounts') return <AccountsDashboard profile={profile} />
         return <StaffDashboard profile={profile} setPage={setPage} />
     }
   }
