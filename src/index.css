@@ -245,3 +245,8 @@ html, body, #root {
 }
 .empty-state svg { margin-bottom: 16px; opacity: 0.4; }
 .empty-state p { font-size: 13px; margin-top: 6px; }
+/* Global fix: ensure dropdown option text is always visible, regardless of which select element it's on */
+select option {
+  color: #0F172A;
+  background: #FFFFFF;
+}
