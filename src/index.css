@@ -250,3 +250,18 @@ select option {
   color: #0F172A;
   background: #FFFFFF;
 }
+/* Mobile login */
+@media (max-width: 768px) {
+  .login-left-panel {
+    display: none !important;
+  }
+  .login-mobile-logo {
+    display: flex !important;
+  }
+}
+
+/* Fix native select dropdown on dark background */
+select.input-dark option {
+  background: #0D1B2E;
+  color: #fff;
+}
