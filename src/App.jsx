@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { BrowserRouter, useLocation } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
@@ -13,7 +14,7 @@ function Loader() {
   )
 }
 
-export default function App() {
+function AppContent() {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -46,7 +47,17 @@ export default function App() {
 
   return (
     <ToastProvider>
-      {loading ? <Loader /> : (!session || !profile) ? <Login /> : <Dashboard profile={profile} />}
+      {loading ? <Loader /> : (!session || !profile) ? <Login /> : <AuthenticatedPortal profile={profile} />}
     </ToastProvider>
   )
+}
+
+function AuthenticatedPortal({ profile }) {
+  const { pathname } = useLocation()
+  const match = pathname.match(/^\/request\/([^/]+)$/)
+  return <Dashboard profile={profile} requestId={match?.[1] || null} />
+}
+
+export default function App() {
+  return <BrowserRouter><AppContent /></BrowserRouter>
 }

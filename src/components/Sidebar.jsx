@@ -63,7 +63,7 @@ export default function Sidebar({ profile, page, setPage, onSignOut }) {
   )
 
   return (
-    <div style={{
+    <div className="sidebar-root" style={{
       width: collapsed ? 60 : 220, flexShrink: 0,
       background: 'var(--navy)', display: 'flex', flexDirection: 'column',
       transition: 'width var(--t-slow)', overflow: 'hidden',
@@ -86,7 +86,7 @@ export default function Sidebar({ profile, page, setPage, onSignOut }) {
       </div>
 
       {/* Nav */}
-      <div style={{ flex: 1, padding: '8px', overflowY: 'auto', overflowX: 'hidden' }}>
+      <div className="sidebar-nav" style={{ flex: 1, padding: '8px', overflowY: 'auto', overflowX: 'hidden' }}>
         <SectionLabel label="Requisitions" />
         {reqNav.map(item => (
           <NavItem key={item.key} icon={item.icon} label={item.label} navKey={item.key} />
@@ -112,7 +112,7 @@ export default function Sidebar({ profile, page, setPage, onSignOut }) {
       </div>
 
       {/* Bottom */}
-      <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="sidebar-footer" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
         <button
           onClick={() => setCollapsed(!collapsed)}
           style={{ width: '100%', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-end', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.2)', transition: 'color var(--t-fast)' }}

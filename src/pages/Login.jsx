@@ -7,7 +7,6 @@ export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [name, setName] = useState('')
-  const [role, setRole] = useState('staff')
   const [deptId, setDeptId] = useState('')
   const [depts, setDepts] = useState([])
   const [error, setError] = useState('')
@@ -31,15 +30,13 @@ export default function Login() {
     setLoading(true); setError('')
     const { data, error } = await supabase.auth.signUp({
       email, password,
-      options: { data: { full_name: name, role, department_id: deptId } }
+      options: { data: { full_name: name, role: 'staff', department_id: deptId } }
     })
     if (error) { setError(error.message); setLoading(false); return }
     const { error: profileError } = await supabase.from('profiles').insert({
-      id: data.user.id, full_name: name, role, department_id: deptId,
+      id: data.user.id, full_name: name, role: 'staff', department_id: deptId,
       email,
-      title: role === 'staff' ? 'Staff' : role === 'hod' ? 'Head of Department' :
-             role === 'management' ? 'Management' : role === 'stores' ? 'Store Manager' :
-             role === 'admin' ? 'Administrator' : 'Accounts'
+      title: 'Staff'
     })
     if (profileError) setError(profileError.message)
     setLoading(false)
@@ -176,16 +173,8 @@ export default function Login() {
                 {depts.map(d => <option key={d.id} value={d.id} style={{ background: '#0D1B2E', color: '#fff' }}>{d.name}</option>)}
               </select>
             </div>
-            <div>
-              <label className="label" style={{ color: 'rgba(255,255,255,0.4)' }}>Role</label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {[['staff','Staff'],['hod','HOD'],['management','Management'],['stores','Stores']].map(([k, l]) => (
-                  <button key={k} onClick={() => setRole(k)}
-                    style={{ padding: '9px', border: `1.5px solid ${role === k ? 'var(--blue, #1A56DB)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 8, background: role === k ? 'rgba(26,86,219,0.2)' : 'transparent', color: role === k ? '#fff' : 'rgba(255,255,255,0.35)', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', transition: 'all 120ms ease' }}>
-                    {l}
-                  </button>
-                ))}
-              </div>
+            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '10px 12px' }}>
+              New accounts are created as <strong style={{ color: '#fff' }}>Staff</strong>. Departmental and approval roles are assigned by an administrator.
             </div>
             {error && <div style={{ fontSize: 11, color: '#F87171', background: 'rgba(248,113,113,0.08)', padding: '8px 12px', borderRadius: 6, borderLeft: '3px solid #F87171' }}>{error}</div>}
             <button onClick={handleSignUp} disabled={loading} className="btn btn-primary btn-lg" style={{ width: '100%', marginTop: 4 }}>

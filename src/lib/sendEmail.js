@@ -9,6 +9,35 @@ export async function sendEmail({ to, subject, html }) {
 }
 
 export const emailTemplates = {
+  requestUrl(requestId) {
+    return `https://actitech-portal.vercel.app/request/${requestId}`
+  },
+
+  revisionRequired(requesterName, reqNumber, purpose, comment, requestId) {
+    const requestUrl = this.requestUrl(requestId)
+    const note = comment ? `<p style="color: #475569; font-size: 14px;"><strong>HOD note:</strong> ${comment}</p>` : ''
+    return {
+      subject: `Action Required: Revise Requisition ${reqNumber}`,
+      html: `
+        <div style="font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: #0C1A2E; padding: 24px 32px;"><h1 style="color: #fff; font-size: 18px; margin: 0;">Acti-Tech Operations Portal</h1></div>
+          <div style="padding: 32px; background: #F2F5FB;">
+            <h2 style="color: #D97706; font-size: 16px;">Requisition Revision Required</h2>
+            <p style="color: #475569; font-size: 14px;">Hi ${requesterName},</p>
+            <p style="color: #475569; font-size: 14px;">Your HOD has returned this requisition for revision before it can proceed.</p>
+            <div style="background: #fff; border: 1px solid #DDE5F0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+              <p style="margin: 0 0 8px; font-size: 13px;"><strong>Ref:</strong> ${reqNumber}</p>
+              <p style="margin: 0; font-size: 13px;"><strong>Purpose:</strong> ${purpose}</p>
+            </div>
+            ${note}
+            <a href="${requestUrl}" style="display: inline-block; background: #1A56DB; color: #fff; text-decoration: none; font-size: 14px; font-weight: 700; padding: 11px 18px; border-radius: 8px;">Review and resubmit request</a>
+          </div>
+          <div style="background: #0C1A2E; padding: 16px 32px;"><p style="color: #94A3B8; font-size: 11px; margin: 0;">Acti-Tech Limited · Confidential Internal System</p></div>
+        </div>
+      `
+    }
+  },
+
   submitted(requesterName, reqNumber, purpose, hodName) {
     return {
       subject: `New Requisition ${reqNumber} Awaiting Your Authorization`,

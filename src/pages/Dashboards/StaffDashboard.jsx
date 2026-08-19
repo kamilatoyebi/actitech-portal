@@ -7,6 +7,7 @@ import { FileText, Clock, CheckCircle, Package, Plus, ArrowRight, Eye } from 'lu
 const STATUS = {
   draft:             { l: 'Draft',        c: 'var(--text-3)',  bg: 'var(--surface-2)' },
   submitted:         { l: 'Submitted',    c: 'var(--purple)',  bg: 'var(--purple-bg)' },
+  revision_required: { l: 'Revision Required', c: 'var(--yellow)', bg: 'var(--yellow-bg)' },
   hod_review:        { l: 'HOD Review',   c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
   management_review: { l: 'Mgmt Review',  c: 'var(--blue)',    bg: '#DBEAFE' },
   approved:          { l: 'Approved',     c: 'var(--green)',   bg: 'var(--green-bg)' },
@@ -45,7 +46,7 @@ export default function StaffDashboard({ profile, setPage }) {
   )
 
   const total     = reqs.length
-  const pending   = reqs.filter(r => ['submitted','hod_review','management_review'].includes(r.status)).length
+  const pending   = reqs.filter(r => ['submitted','hod_review','management_review','revision_required'].includes(r.status)).length
   const approved  = reqs.filter(r => r.status === 'approved').length
   const fulfilled = reqs.filter(r => r.status === 'fulfilled').length
 

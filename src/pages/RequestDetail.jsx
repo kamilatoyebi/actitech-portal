@@ -15,6 +15,7 @@ import {
 const STATUS = {
   draft:             { l: 'Draft',         c: 'var(--text-3)',  bg: 'var(--surface-2)' },
   submitted:         { l: 'Submitted',     c: 'var(--purple)',  bg: 'var(--purple-bg)' },
+  revision_required: { l: 'Revision Required', c: 'var(--yellow)', bg: 'var(--yellow-bg)' },
   hod_review:        { l: 'HOD Review',    c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
   management_review: { l: 'Mgmt Review',   c: 'var(--blue)',    bg: '#DBEAFE' },
   approved:          { l: 'Approved',      c: 'var(--green)',   bg: 'var(--green-bg)' },
@@ -42,6 +43,8 @@ function TimelineEvent({ event }) {
     management_approved: <CheckCircle size={14} color="var(--green)" />,
     management_rejected: <XCircle size={14} color="var(--red)" />,
     management_resubmit: <RotateCcw size={14} color="var(--yellow)" />,
+    hod_returned_for_revision: <RotateCcw size={14} color="var(--yellow)" />,
+    staff_resubmitted: <Send size={14} color="var(--purple)" />,
     fulfilled:         <Package size={14} color="var(--teal)" />,
     stores_unavailable: <AlertTriangle size={14} color="var(--yellow)" />,
     admin_forwarded_to_accounts: <Send size={14} color="var(--blue)" />,
@@ -59,6 +62,8 @@ function TimelineEvent({ event }) {
     management_approved: 'Approved by Management',
     management_rejected: 'Rejected by Management',
     management_resubmit: 'Returned to HOD by Management',
+    hod_returned_for_revision: 'Returned to requester for revision',
+    staff_resubmitted: 'Revised and resubmitted to HOD',
     fulfilled:           'Fulfilled by Stores',
     stores_unavailable:  'Items marked unavailable — sent for outsourcing',
     admin_forwarded_to_accounts: 'Outsourcing details forwarded to Accounts',
@@ -104,9 +109,30 @@ function CommentThread({ requisitionId, profile }) {
   const [sending, setSending] = useState(false)
   const bottomRef = useRef(null)
 
-  useEffect(() => { fetchComments() }, [requisitionId])
+  useEffect(() => {
+    let active = true
 
-  async function fetchComments() {
+    fetchComments()
+
+    const channel = supabase
+      .channel(`comments:${requisitionId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'comments',
+        filter: `requisition_id=eq.${requisitionId}`,
+      }, () => {
+        if (active) fetchComments(false)
+      })
+      .subscribe()
+
+    return () => {
+      active = false
+      supabase.removeChannel(channel)
+    }
+  }, [requisitionId])
+
+  async function fetchComments(scrollToLatest = true) {
     setLoading(true)
     const { data } = await supabase
       .from('comments')
@@ -115,7 +141,7 @@ function CommentThread({ requisitionId, profile }) {
       .order('created_at', { ascending: true })
     if (data) setComments(data)
     setLoading(false)
-    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
+    if (scrollToLatest) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
   }
 
   async function sendComment() {
@@ -285,6 +311,11 @@ export default function RequestDetail({ reqId, profile, onBack }) {
   const [showCommentForAction, setShowCommentForAction] = useState(null)
   const [outsourcingItems, setOutsourcingItems] = useState([])
   const [paymentReference, setPaymentReference] = useState('')
+  const [editingRevision, setEditingRevision] = useState(false)
+  const [revisionDraft, setRevisionDraft] = useState(null)
+  const [editingHodRequest, setEditingHodRequest] = useState(false)
+  const [hodDraft, setHodDraft] = useState(null)
+  const [savingEdits, setSavingEdits] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
   const toast = useToast()
 
@@ -311,6 +342,18 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         outsourcing_reason: item.outsourcing_reason || '',
         outsourcing_notes: item.outsourcing_notes || '',
       })) || [])
+      setRevisionDraft({
+        purpose: reqData.purpose || '',
+        location: reqData.location || '',
+        priority: reqData.priority || 'Normal',
+        items: reqData.req_items?.map(item => ({ id: item.id, item_name: item.item_name, quantity: item.quantity, remarks: item.remarks || '' })) || [],
+      })
+      setHodDraft({
+        purpose: reqData.purpose || '',
+        location: reqData.location || '',
+        priority: reqData.priority || 'Normal',
+        items: reqData.req_items?.map(item => ({ id: item.id, item_name: item.item_name, quantity: item.quantity, remarks: item.remarks || '' })) || [],
+      })
     }
     if (timelineData) setTimeline(timelineData)
     setLoading(false)
@@ -321,7 +364,8 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     const statusMap = {
       hod_authorize:          'management_review',
       hod_reject:             'rejected',
-      hod_return:             'submitted',
+      hod_return:             'revision_required',
+      staff_resubmit:         'submitted',
       management_approve:     'approved',
       management_reject:      'rejected',
       management_return:      'submitted',
@@ -334,6 +378,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
 
     const stageMap = {
       hod_authorize: 'hod', hod_reject: 'hod', hod_return: 'hod',
+      staff_resubmit: 'staff',
       management_approve: 'management', management_reject: 'management', management_return: 'management',
       stores_fulfill: 'stores', stores_return: 'stores',
       admin_forward_accounts: 'admin',
@@ -341,7 +386,8 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     }
 
     const actionLabelMap = {
-      hod_authorize: 'approved', hod_reject: 'rejected', hod_return: 'resubmit',
+      hod_authorize: 'approved', hod_reject: 'rejected', hod_return: 'returned_for_revision',
+      staff_resubmit: 'resubmitted',
       management_approve: 'approved', management_reject: 'rejected', management_return: 'resubmit',
       stores_fulfill: 'fulfilled', stores_return: 'unavailable',
       admin_forward_accounts: 'forwarded_to_accounts',
@@ -351,6 +397,22 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     const newStatus = statusMap[action]
     const stage = stageMap[action]
     const actionLabel = actionLabelMap[action]
+
+    if (action === 'staff_resubmit') {
+      const draft = revisionDraft
+      if (!draft?.purpose.trim() || draft.items.some(item => !item.item_name.trim() || Number(item.quantity) < 1)) {
+        toast('Add a purpose and a valid name and quantity for every item', 'error'); setActing(false); return
+      }
+      const { error: requestError } = await supabase.from('requisitions').update({
+        purpose: draft.purpose.trim(), location: draft.location.trim(), priority: draft.priority,
+      }).eq('id', reqId)
+      if (requestError) { toast(requestError.message, 'error'); setActing(false); return }
+      const itemResults = await Promise.all(draft.items.map(item => supabase.from('req_items').update({
+        item_name: item.item_name.trim(), quantity: Number(item.quantity), remarks: item.remarks.trim() || null,
+      }).eq('id', item.id)))
+      const itemError = itemResults.find(result => result.error)?.error
+      if (itemError) { toast(itemError.message, 'error'); setActing(false); return }
+    }
 
     if (action === 'admin_forward_accounts') {
       const results = await Promise.all(outsourcingItems.map(item =>
@@ -406,6 +468,14 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       toast('Marked as fulfilled — requester notified', 'success')
     } else if (action === 'stores_return') {
       toast('Marked unavailable and sent to Admin for outsourcing', 'warning')
+    } else if (action === 'hod_return') {
+      if (req.profiles?.email) {
+        const t = emailTemplates.revisionRequired(req.profiles.full_name, req.req_number, req.purpose, comment, reqId)
+        await sendEmail({ to: req.profiles.email, ...t })
+      }
+      toast('Returned for revision — requester notified', 'warning')
+    } else if (action === 'staff_resubmit') {
+      toast('Requisition revised and resubmitted to your HOD', 'success')
     } else if (action === 'admin_forward_accounts') {
       toast('Outsourcing details saved and sent to Accounts', 'success')
     } else if (action === 'accounts_approve_payment') {
@@ -423,11 +493,35 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     }
 
     setActionComment('')
+    setEditingRevision(false)
     setPaymentReference('')
     setShowCommentForAction(null)
     setConfirm(null)
     await fetchAll()
     setActing(false)
+  }
+
+  async function saveHodEdits() {
+    if (!hodDraft?.purpose.trim() || hodDraft.items.some(item => !item.item_name.trim() || Number(item.quantity) < 1)) {
+      toast('Add a purpose and a valid name and quantity for every item', 'error'); return
+    }
+
+    setSavingEdits(true)
+    const { error: requestError } = await supabase.from('requisitions').update({
+      purpose: hodDraft.purpose.trim(), location: hodDraft.location.trim(), priority: hodDraft.priority,
+    }).eq('id', reqId)
+    if (requestError) { toast(requestError.message, 'error'); setSavingEdits(false); return }
+
+    const itemResults = await Promise.all(hodDraft.items.map(item => supabase.from('req_items').update({
+      item_name: item.item_name.trim(), quantity: Number(item.quantity), remarks: item.remarks.trim() || null,
+    }).eq('id', item.id)))
+    const itemError = itemResults.find(result => result.error)?.error
+    if (itemError) { toast(itemError.message, 'error'); setSavingEdits(false); return }
+
+    setEditingHodRequest(false)
+    await fetchAll()
+    setSavingEdits(false)
+    toast('Request changes saved', 'success')
   }
 
   async function handlePrint() {
@@ -528,6 +622,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
 
         {role === 'hod' && status === 'submitted' && (
           <>
+            <button onClick={() => setEditingHodRequest(value => !value)} className="btn btn-secondary btn-sm">
+              {editingHodRequest ? 'Continue Editing' : 'Edit Request'}
+            </button>
             <ActionWithComment actionKey="hod_return" label="Return for Revision" btnClass="btn-warning" icon={RotateCcw}
               confirmTitle="Return for Revision" confirmMsg="Return this request to the staff member for revision?" />
             <ActionWithComment actionKey="hod_reject" label="Reject" btnClass="btn-danger" icon={XCircle}
@@ -555,6 +652,12 @@ export default function RequestDetail({ reqId, profile, onBack }) {
             <ActionWithComment actionKey="stores_fulfill" label="Mark Fulfilled" btnClass="btn-primary" icon={Package}
               confirmTitle="Mark as Fulfilled" confirmMsg="Confirm all items have been issued to the requester?" />
           </>
+        )}
+
+        {role === 'staff' && req.requester_id === profile.id && status === 'revision_required' && (
+          <button onClick={() => setEditingRevision(value => !value)} className="btn btn-primary btn-sm">
+            {editingRevision ? 'Continue Editing' : 'Edit & Resubmit'}
+          </button>
         )}
 
         {role === 'admin' && status === 'outsourcing' && (
@@ -669,6 +772,66 @@ export default function RequestDetail({ reqId, profile, onBack }) {
             )}
           </div>
 
+          {editingRevision && profile.role === 'staff' && req.requester_id === profile.id && req.status === 'revision_required' && revisionDraft && (
+            <div className="card" style={{ padding: 20, gridColumn: '1 / -1' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Revise and resubmit</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Update the request, then send it back to your HOD.</div>
+                </div>
+                <button onClick={() => setEditingRevision(false)} className="btn btn-secondary btn-sm">Cancel</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div><label className="label">Purpose *</label><input className="input" value={revisionDraft.purpose} onChange={e => setRevisionDraft(draft => ({ ...draft, purpose: e.target.value }))} /></div>
+                <div><label className="label">Location / Site</label><input className="input" value={revisionDraft.location} onChange={e => setRevisionDraft(draft => ({ ...draft, location: e.target.value }))} /></div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>Priority:</span>
+                {['Normal', 'Urgent'].map(priority => <button key={priority} onClick={() => setRevisionDraft(draft => ({ ...draft, priority }))} className={`btn btn-sm ${revisionDraft.priority === priority ? 'btn-primary' : 'btn-secondary'}`}>{priority}</button>)}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                {revisionDraft.items.map((item, index) => (
+                  <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 90px minmax(0, 1fr)', gap: 10 }}>
+                    <input className="input" value={item.item_name} onChange={e => setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, item_name: e.target.value } : current) }))} placeholder="Item description" />
+                    <input className="input" type="number" min="1" value={item.quantity} onChange={e => setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, quantity: e.target.value } : current) }))} />
+                    <input className="input" value={item.remarks} onChange={e => setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, remarks: e.target.value } : current) }))} placeholder="Remarks" />
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => setConfirm({ actionKey: 'staff_resubmit', comment: 'Request updated and resubmitted.' })} className="btn btn-primary" disabled={acting}><Send size={14} /> Resubmit to HOD</button>
+            </div>
+          )}
+
+          {editingHodRequest && profile.role === 'hod' && req.status === 'submitted' && hodDraft && (
+            <div className="card" style={{ padding: 20, gridColumn: '1 / -1' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>HOD Request Review</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>Update request details before authorization.</div>
+                </div>
+                <button onClick={() => setEditingHodRequest(false)} className="btn btn-secondary btn-sm" disabled={savingEdits}>Cancel</button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div><label className="label">Purpose *</label><input className="input" value={hodDraft.purpose} onChange={e => setHodDraft(draft => ({ ...draft, purpose: e.target.value }))} /></div>
+                <div><label className="label">Location / Site</label><input className="input" value={hodDraft.location} onChange={e => setHodDraft(draft => ({ ...draft, location: e.target.value }))} /></div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>Priority:</span>
+                {['Normal', 'Urgent'].map(priority => <button key={priority} onClick={() => setHodDraft(draft => ({ ...draft, priority }))} className={`btn btn-sm ${hodDraft.priority === priority ? 'btn-primary' : 'btn-secondary'}`}>{priority}</button>)}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                {hodDraft.items.map((item, index) => (
+                  <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 90px minmax(0, 1fr)', gap: 10 }}>
+                    <input className="input" value={item.item_name} onChange={e => setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, item_name: e.target.value } : current) }))} placeholder="Item description" />
+                    <input className="input" type="number" min="1" value={item.quantity} onChange={e => setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, quantity: e.target.value } : current) }))} />
+                    <input className="input" value={item.remarks} onChange={e => setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, remarks: e.target.value } : current) }))} placeholder="Remarks" />
+                  </div>
+                ))}
+              </div>
+              <button onClick={saveHodEdits} className="btn btn-primary" disabled={savingEdits}>{savingEdits ? 'Saving...' : 'Save Changes'}</button>
+            </div>
+          )}
+
           {profile.role === 'admin' && req.status === 'outsourcing' && (
             <div className="card" style={{ padding: 20, gridColumn: '1 / -1' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Outsourcing Details</div>
@@ -728,6 +891,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey?.includes('approve') ? 'Approve Request' :
           confirm?.actionKey?.includes('reject') ? 'Reject Request' :
           confirm?.actionKey?.includes('return') ? 'Return for Revision' :
+          confirm?.actionKey === 'staff_resubmit' ? 'Resubmit Request' :
           confirm?.actionKey?.includes('fulfill') ? 'Mark as Fulfilled' :
           confirm?.actionKey === 'admin_forward_accounts' ? 'Forward to Accounts' :
           confirm?.actionKey === 'accounts_approve_payment' ? 'Approve Payment' :
@@ -737,6 +901,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         message={
           confirm?.actionKey === 'hod_authorize' ? 'Authorize this requisition and forward to management for final approval?' :
           confirm?.actionKey === 'hod_return' ? 'Return this requisition to the requester for revision?' :
+          confirm?.actionKey === 'staff_resubmit' ? 'Submit your revised requisition to your HOD for review?' :
           confirm?.actionKey === 'hod_reject' ? 'Reject this requisition? The requester will be notified by email.' :
           confirm?.actionKey === 'management_approve' ? 'Approve this requisition and send to stores for fulfillment?' :
           confirm?.actionKey === 'management_return' ? 'Return this requisition to the HOD for further review?' :
@@ -753,6 +918,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey?.includes('approve') ? 'Approve' :
           confirm?.actionKey?.includes('reject') ? 'Reject' :
           confirm?.actionKey?.includes('return') || confirm?.actionKey?.includes('flag') ? 'Confirm' :
+          confirm?.actionKey === 'staff_resubmit' ? 'Resubmit' :
           confirm?.actionKey?.includes('fulfill') ? 'Mark Fulfilled' :
           confirm?.actionKey === 'admin_forward_accounts' ? 'Forward' :
           confirm?.actionKey === 'accounts_approve_payment' ? 'Approve Payment' :
