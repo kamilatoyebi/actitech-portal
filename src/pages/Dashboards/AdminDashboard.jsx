@@ -5,7 +5,12 @@ import { SkeletonCard } from '../../components/ui/Skeleton'
 import { Clock, AlertTriangle, Eye, Send } from 'lucide-react'
 
 function Pill({ status }) {
-  const labels = { outsourcing: 'Outsourcing', payment_review: 'Payment Review', completed: 'Completed' }
+  const labels = {
+    revision_required: 'Revision Required',
+    outsourcing: 'Outsourcing',
+    payment_review: 'Payment Review',
+    completed: 'Completed',
+  }
   return <span className="pill" style={{ background: 'var(--yellow-bg)', color: 'var(--yellow)' }}>{labels[status] || status}</span>
 }
 
@@ -20,7 +25,7 @@ export default function AdminDashboard({ profile }) {
     setLoading(true)
     const { data } = await supabase.from('requisitions')
       .select('*, profiles(full_name, id, email), departments(name), req_items(*)')
-      .eq('status', 'outsourcing')
+      .in('status', ['revision_required', 'outsourcing', 'payment_review', 'completed'])
       .order('created_at', { ascending: false })
     if (data) setReqs(data)
     setLoading(false)

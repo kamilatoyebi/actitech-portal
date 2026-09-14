@@ -9,7 +9,7 @@ import {
   ArrowLeft, Clock, CheckCircle, XCircle, RotateCcw,
   Printer, Send, Package, ChevronDown, ChevronUp,
   User, Calendar, MapPin, Tag, MessageSquare, Activity,
-  AlertTriangle, FileText, Building2
+  AlertTriangle, FileText, Building2, ClipboardList
 } from 'lucide-react'
 
 const STATUS = {
@@ -26,12 +26,84 @@ const STATUS = {
   rejected:          { l: 'Rejected',      c: 'var(--red)',     bg: 'var(--red-bg)' },
 }
 
+const AVAILABILITY = {
+  pending:     { l: 'Pending',     c: 'var(--text-3)', bg: 'var(--surface-2)' },
+  available:   { l: 'Available',   c: 'var(--green)',  bg: 'var(--green-bg)' },
+  partial:     { l: 'Partial',     c: 'var(--yellow)', bg: 'var(--yellow-bg)' },
+  unavailable: { l: 'Unavailable', c: 'var(--red)',    bg: 'var(--red-bg)' },
+}
+
 function Pill({ status }) {
   const s = STATUS[status] || STATUS.draft
   return (
     <span className="pill" style={{ background: s.bg, color: s.c, fontSize: 11, padding: '4px 10px' }}>
       {s.l}
     </span>
+  )
+}
+
+function AvailabilityPill({ availability }) {
+  const a = AVAILABILITY[availability] || AVAILABILITY.pending
+  return (
+    <span className="pill" style={{ background: a.bg, color: a.c, fontSize: 10, padding: '2px 8px' }}>
+      {a.l}
+    </span>
+  )
+}
+
+// Module-scope so its identity is stable across RequestDetail re-renders.
+// Previously this was defined inside ActionBar (itself defined inside the
+// component body), so every re-render created a brand-new component type,
+// which made React unmount/remount the textarea on every keystroke.
+function ActionWithComment({
+  actionKey, label, btnClass, icon: Icon,
+  showCommentForAction, setShowCommentForAction,
+  actionComment, setActionComment,
+  paymentReference, setPaymentReference,
+  setConfirm, acting, toast, extra,
+}) {
+  const open = showCommentForAction === actionKey
+  return (
+    <div>
+      {open ? (
+        <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: 16, marginBottom: 10 }}>
+          {extra}
+          <label className="label">Add a note (optional)</label>
+          <textarea
+            className="input"
+            rows={3}
+            value={actionComment}
+            onChange={e => setActionComment(e.target.value)}
+            placeholder="Explain your decision, recommend alternatives, or add context..."
+            style={{ marginBottom: 10, resize: 'none' }}
+          />
+          {actionKey === 'accounts_approve_payment' && (
+            <input
+              className="input"
+              value={paymentReference}
+              onChange={e => setPaymentReference(e.target.value)}
+              placeholder="Payment reference"
+              style={{ marginBottom: 10 }}
+            />
+          )}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button onClick={() => { setShowCommentForAction(null); setActionComment('') }} className="btn btn-secondary btn-sm">Cancel</button>
+            <button onClick={() => {
+              if (actionKey === 'accounts_approve_payment' && !paymentReference.trim()) {
+                toast('Enter the payment reference before approving', 'error'); return
+              }
+              setConfirm({ actionKey, comment: actionComment, paymentReference })
+            }} className={`btn ${btnClass} btn-sm`} disabled={acting}>
+              <Icon size={13} /> Confirm {label}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setShowCommentForAction(actionKey)} className={`btn ${btnClass} btn-sm`} disabled={acting}>
+          <Icon size={13} /> {label}
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -65,7 +137,7 @@ function TimelineEvent({ event }) {
     hod_returned_for_revision: 'Returned to requester for revision',
     staff_resubmitted: 'Revised and resubmitted to HOD',
     fulfilled:           'Fulfilled by Stores',
-    stores_unavailable:  'Items marked unavailable — sent for outsourcing',
+    stores_unavailable:  'Items reported short — sent for outsourcing',
     admin_forwarded_to_accounts: 'Outsourcing details forwarded to Accounts',
     accounts_payment_approved: 'Payment approved — request completed',
     accounts_payment_rejected: 'Payment returned to Admin for review',
@@ -317,6 +389,8 @@ export default function RequestDetail({ reqId, profile, onBack }) {
   const [hodDraft, setHodDraft] = useState(null)
   const [savingEdits, setSavingEdits] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
+  const [storesDraft, setStoresDraft] = useState(null)
+  const [reportingAvailability, setReportingAvailability] = useState(false)
   const toast = useToast()
 
   useEffect(() => { fetchAll() }, [reqId])
@@ -335,13 +409,20 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     ])
     if (reqData) {
       setReq(reqData)
-      setOutsourcingItems(reqData.req_items?.map(item => ({
-        id: item.id,
-        outsourcing_vendor: item.outsourcing_vendor || '',
-        outsourcing_cost: item.outsourcing_cost ?? '',
-        outsourcing_reason: item.outsourcing_reason || '',
-        outsourcing_notes: item.outsourcing_notes || '',
-      })) || [])
+      // Only pull unresolved (partial/unavailable) items into the outsourcing
+      // form — Admin should only ever see the shortfall, not the whole order.
+      setOutsourcingItems(reqData.req_items
+        ?.filter(item => item.availability === 'partial' || item.availability === 'unavailable')
+        .map(item => ({
+          id: item.id,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          quantity_available: item.quantity_available,
+          outsourcing_vendor: item.outsourcing_vendor || '',
+          outsourcing_cost: item.outsourcing_cost ?? '',
+          outsourcing_reason: item.outsourcing_reason || '',
+          outsourcing_notes: item.outsourcing_notes || '',
+        })) || [])
       setRevisionDraft({
         purpose: reqData.purpose || '',
         location: reqData.location || '',
@@ -354,6 +435,15 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         priority: reqData.priority || 'Normal',
         items: reqData.req_items?.map(item => ({ id: item.id, item_name: item.item_name, quantity: item.quantity, remarks: item.remarks || '' })) || [],
       })
+      // Default every item to "fully available" — Store only needs to touch
+      // the ones that are actually short.
+      setStoresDraft(reqData.req_items?.map(item => ({
+        id: item.id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        remarks: item.remarks,
+        quantity_available: item.quantity_available ?? item.quantity,
+      })) || [])
     }
     if (timelineData) setTimeline(timelineData)
     setLoading(false)
@@ -370,7 +460,6 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       management_reject:      'rejected',
       management_return:      'submitted',
       stores_fulfill:         'fulfilled',
-      stores_return:          'outsourcing',
       admin_forward_accounts: 'payment_review',
       accounts_approve_payment: 'completed',
       accounts_reject_payment: 'outsourcing',
@@ -394,9 +483,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       accounts_approve_payment: 'payment_approved', accounts_reject_payment: 'payment_rejected',
     }
 
-    const newStatus = statusMap[action]
     const stage = stageMap[action]
     const actionLabel = actionLabelMap[action]
+    let overrideStatus = null
 
     if (action === 'staff_resubmit') {
       const draft = revisionDraft
@@ -414,6 +503,48 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       if (itemError) { toast(itemError.message, 'error'); setActing(false); return }
     }
 
+    if (action === 'stores_fulfill') {
+      // Every item goes out fully as-is.
+      const results = await Promise.all(req.req_items.map(item => supabase.from('req_items').update({
+        quantity_available: item.quantity,
+        availability: 'available',
+        supplied: true,
+      }).eq('id', item.id)))
+      const error = results.find(result => result.error)?.error
+      if (error) { toast(error.message, 'error'); setActing(false); return }
+    }
+
+    if (action === 'stores_return') {
+      // Per-item availability. Anything short (partial or zero) is what
+      // gets sent to Admin; anything fully available is marked supplied
+      // right now, same as a normal fulfillment, so Store isn't blocked
+      // from issuing the items that ARE in stock just because others aren't.
+      const items = storesDraft || []
+      if (items.some(item => item.quantity_available === '' || item.quantity_available === null || item.quantity_available === undefined || isNaN(Number(item.quantity_available)))) {
+        toast('Enter the available quantity for every item', 'error'); setActing(false); return
+      }
+      const computed = items.map(item => {
+        const avail = Math.max(0, Math.min(Number(item.quantity_available), item.quantity))
+        const availability = avail >= item.quantity ? 'available' : avail === 0 ? 'unavailable' : 'partial'
+        return { ...item, avail, availability }
+      })
+      const results = await Promise.all(computed.map(item => supabase.from('req_items').update({
+        quantity_available: item.avail,
+        availability: item.availability,
+        supplied: item.availability === 'available',
+      }).eq('id', item.id)))
+      const error = results.find(result => result.error)?.error
+      if (error) { toast(error.message, 'error'); setActing(false); return }
+
+      const allAvailable = computed.every(item => item.availability === 'available')
+      if (allAvailable) {
+        toast('All items were fully available — marked as fulfilled instead', 'info')
+        overrideStatus = 'fulfilled'
+      } else {
+        overrideStatus = 'outsourcing'
+      }
+    }
+
     if (action === 'admin_forward_accounts') {
       const results = await Promise.all(outsourcingItems.map(item =>
         supabase.from('req_items').update({
@@ -428,13 +559,17 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     }
 
     if (action === 'accounts_approve_payment') {
-      const results = await Promise.all(req.req_items.map(item =>
-        supabase.from('req_items').update({ payment_reference: reference }).eq('id', item.id)
+      // Only the outsourced items were actually paid for — don't stamp a
+      // payment reference on items Stores already fulfilled in-house.
+      const outsourcedIds = req.req_items.filter(item => item.availability === 'partial' || item.availability === 'unavailable').map(item => item.id)
+      const results = await Promise.all(outsourcedIds.map(id =>
+        supabase.from('req_items').update({ payment_reference: reference, supplied: true, availability: 'available' }).eq('id', id)
       ))
       const error = results.find(result => result.error)?.error
       if (error) { toast(error.message, 'error'); setActing(false); return }
     }
 
+    const newStatus = overrideStatus || statusMap[action]
     const { error: statusError } = await supabase.from('requisitions').update({ status: newStatus }).eq('id', reqId)
     if (statusError) { toast(statusError.message, 'error'); setActing(false); return }
     const { error: approvalError } = await supabase.from('approvals').insert({
@@ -467,7 +602,14 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       }
       toast('Marked as fulfilled — requester notified', 'success')
     } else if (action === 'stores_return') {
-      toast('Marked unavailable and sent to Admin for outsourcing', 'warning')
+      if (overrideStatus === 'fulfilled') {
+        if (req.profiles?.email) {
+          const t = emailTemplates.fulfilled(req.profiles.full_name, req.req_number, req.purpose)
+          await sendEmail({ to: req.profiles.email, ...t })
+        }
+      } else {
+        toast('Availability saved — shortfall sent to Admin for outsourcing', 'warning')
+      }
     } else if (action === 'hod_return') {
       if (req.profiles?.email) {
         const t = emailTemplates.revisionRequired(req.profiles.full_name, req.req_number, req.purpose, comment, reqId)
@@ -496,6 +638,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     setEditingRevision(false)
     setPaymentReference('')
     setShowCommentForAction(null)
+    setReportingAvailability(false)
     setConfirm(null)
     await fetchAll()
     setActing(false)
@@ -567,52 +710,18 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     </div>
   )
 
+  const commentProps = {
+    showCommentForAction, setShowCommentForAction,
+    actionComment, setActionComment,
+    paymentReference, setPaymentReference,
+    setConfirm, acting, toast,
+  }
+
   // Role-specific action buttons
   const ActionBar = () => {
     const role = profile.role
     const status = req.status
-
-    const ActionWithComment = ({ actionKey, label, btnClass, icon: Icon, confirmTitle, confirmMsg }) => (
-      <div>
-        {showCommentForAction === actionKey ? (
-          <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', padding: 16, marginBottom: 10 }}>
-            <label className="label">Add a note (optional)</label>
-            <textarea
-              className="input"
-              rows={3}
-              value={actionComment}
-              onChange={e => setActionComment(e.target.value)}
-              placeholder="Explain your decision, recommend alternatives, or add context..."
-              style={{ marginBottom: 10, resize: 'none' }}
-            />
-            {actionKey === 'accounts_approve_payment' && (
-              <input
-                className="input"
-                value={paymentReference}
-                onChange={e => setPaymentReference(e.target.value)}
-                placeholder="Payment reference"
-                style={{ marginBottom: 10 }}
-              />
-            )}
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => { setShowCommentForAction(null); setActionComment('') }} className="btn btn-secondary btn-sm">Cancel</button>
-              <button onClick={() => {
-                if (actionKey === 'accounts_approve_payment' && !paymentReference.trim()) {
-                  toast('Enter the payment reference before approving', 'error'); return
-                }
-                setConfirm({ actionKey, comment: actionComment, paymentReference })
-              }} className={`btn ${btnClass} btn-sm`} disabled={acting}>
-                <Icon size={13} /> Confirm {label}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button onClick={() => setShowCommentForAction(actionKey)} className={`btn ${btnClass} btn-sm`} disabled={acting}>
-            <Icon size={13} /> {label}
-          </button>
-        )}
-      </div>
-    )
+    const someShort = storesDraft?.some(item => Number(item.quantity_available) < item.quantity)
 
     return (
       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -625,32 +734,37 @@ export default function RequestDetail({ reqId, profile, onBack }) {
             <button onClick={() => setEditingHodRequest(value => !value)} className="btn btn-secondary btn-sm">
               {editingHodRequest ? 'Continue Editing' : 'Edit Request'}
             </button>
-            <ActionWithComment actionKey="hod_return" label="Return for Revision" btnClass="btn-warning" icon={RotateCcw}
-              confirmTitle="Return for Revision" confirmMsg="Return this request to the staff member for revision?" />
-            <ActionWithComment actionKey="hod_reject" label="Reject" btnClass="btn-danger" icon={XCircle}
-              confirmTitle="Reject Request" confirmMsg="Reject this request? The requester will be notified." />
-            <ActionWithComment actionKey="hod_authorize" label="Authorize" btnClass="btn-success" icon={CheckCircle}
-              confirmTitle="Authorize Request" confirmMsg="Authorize and forward to management?" />
+            <ActionWithComment actionKey="hod_return" label="Return for Revision" btnClass="btn-warning" icon={RotateCcw} {...commentProps} />
+            <ActionWithComment actionKey="hod_reject" label="Reject" btnClass="btn-danger" icon={XCircle} {...commentProps} />
+            <ActionWithComment actionKey="hod_authorize" label="Authorize" btnClass="btn-success" icon={CheckCircle} {...commentProps} />
           </>
         )}
 
         {role === 'management' && status === 'management_review' && (
           <>
-            <ActionWithComment actionKey="management_return" label="Return to HOD" btnClass="btn-warning" icon={RotateCcw}
-              confirmTitle="Return to HOD" confirmMsg="Return this request to the HOD for review?" />
-            <ActionWithComment actionKey="management_reject" label="Reject" btnClass="btn-danger" icon={XCircle}
-              confirmTitle="Reject Request" confirmMsg="Reject this request? The requester will be notified." />
-            <ActionWithComment actionKey="management_approve" label="Approve" btnClass="btn-success" icon={CheckCircle}
-              confirmTitle="Approve Request" confirmMsg="Approve this request and send to stores?" />
+            <ActionWithComment actionKey="management_return" label="Return to HOD" btnClass="btn-warning" icon={RotateCcw} {...commentProps} />
+            <ActionWithComment actionKey="management_reject" label="Reject" btnClass="btn-danger" icon={XCircle} {...commentProps} />
+            <ActionWithComment actionKey="management_approve" label="Approve" btnClass="btn-success" icon={CheckCircle} {...commentProps} />
           </>
         )}
 
         {role === 'stores' && status === 'approved' && (
           <>
-            <ActionWithComment actionKey="stores_return" label="Flag Unavailable" btnClass="btn-warning" icon={AlertTriangle}
-              confirmTitle="Flag as Unavailable" confirmMsg="Flag items as unavailable and send to Admin for outsourcing?" />
-            <ActionWithComment actionKey="stores_fulfill" label="Mark Fulfilled" btnClass="btn-primary" icon={Package}
-              confirmTitle="Mark as Fulfilled" confirmMsg="Confirm all items have been issued to the requester?" />
+            <button onClick={() => setReportingAvailability(value => !value)} className="btn btn-secondary btn-sm">
+              <ClipboardList size={13} /> {reportingAvailability ? 'Hide Item Availability' : 'Report Item Availability'}
+            </button>
+            {!reportingAvailability && (
+              <ActionWithComment actionKey="stores_fulfill" label="Mark Fulfilled" btnClass="btn-primary" icon={Package} {...commentProps} />
+            )}
+            {reportingAvailability && (
+              <ActionWithComment
+                actionKey="stores_return"
+                label={someShort ? 'Save & Send Shortfall to Admin' : 'Save Availability'}
+                btnClass="btn-warning"
+                icon={AlertTriangle}
+                {...commentProps}
+              />
+            )}
           </>
         )}
 
@@ -661,16 +775,13 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         )}
 
         {role === 'admin' && status === 'outsourcing' && (
-          <ActionWithComment actionKey="admin_forward_accounts" label="Forward to Accounts" btnClass="btn-primary" icon={Send}
-            confirmTitle="Forward to Accounts" confirmMsg="Save outsourcing details and send this request to Accounts for payment review?" />
+          <ActionWithComment actionKey="admin_forward_accounts" label="Forward to Accounts" btnClass="btn-primary" icon={Send} {...commentProps} />
         )}
 
         {role === 'accounts' && status === 'payment_review' && (
           <>
-            <ActionWithComment actionKey="accounts_reject_payment" label="Return to Admin" btnClass="btn-warning" icon={RotateCcw}
-              confirmTitle="Return to Admin" confirmMsg="Return this request to Admin for outsourcing review?" />
-            <ActionWithComment actionKey="accounts_approve_payment" label="Approve Payment" btnClass="btn-success" icon={CheckCircle}
-              confirmTitle="Approve Payment" confirmMsg="Record the payment reference and complete this request?" />
+            <ActionWithComment actionKey="accounts_reject_payment" label="Return to Admin" btnClass="btn-warning" icon={RotateCcw} {...commentProps} />
+            <ActionWithComment actionKey="accounts_approve_payment" label="Approve Payment" btnClass="btn-success" icon={CheckCircle} {...commentProps} />
           </>
         )}
       </div>
@@ -717,11 +828,6 @@ export default function RequestDetail({ reqId, profile, onBack }) {
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: active ? 700 : 500, color: active ? 'var(--blue)' : 'var(--text-3)', borderBottom: active ? '2px solid var(--blue)' : '2px solid transparent', marginBottom: -1, transition: 'all var(--t-fast)' }}>
               <Icon size={14} /> {tab.label}
-              {tab.key === 'comments' && (
-                <span style={{ fontSize: 10, background: 'var(--surface-2)', color: 'var(--text-3)', padding: '1px 6px', borderRadius: 99, fontWeight: 600 }}>
-                  {/* comment count shown via CommentThread */}
-                </span>
-              )}
             </button>
           )
         })}
@@ -757,8 +863,16 @@ export default function RequestDetail({ reqId, profile, onBack }) {
               {req.req_items?.map((item, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 'var(--r)', border: '1px solid var(--border)' }}>
                   <div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)', marginBottom: 2 }}>{item.item_name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)' }}>{item.item_name}</span>
+                      {item.availability && item.availability !== 'pending' && <AvailabilityPill availability={item.availability} />}
+                    </div>
                     {item.remarks && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{item.remarks}</div>}
+                    {(item.availability === 'partial' || item.availability === 'unavailable') && (
+                      <div style={{ fontSize: 11, color: 'var(--yellow)', marginTop: 2 }}>
+                        {item.quantity_available ?? 0} of {item.quantity} available
+                      </div>
+                    )}
                   </div>
                   <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--blue)', background: '#DBEAFE', padding: '2px 8px', borderRadius: 99, flexShrink: 0, marginLeft: 8 }}>×{item.quantity}</span>
                 </div>
@@ -832,26 +946,72 @@ export default function RequestDetail({ reqId, profile, onBack }) {
             </div>
           )}
 
-          {profile.role === 'admin' && req.status === 'outsourcing' && (
+          {profile.role === 'stores' && req.status === 'approved' && reportingAvailability && storesDraft && (
             <div className="card" style={{ padding: 20, gridColumn: '1 / -1' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Outsourcing Details</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                {req.req_items?.map((item, index) => {
-                  const details = outsourcingItems[index] || {}
-                  const updateDetails = (field, value) => setOutsourcingItems(items => items.map((current, itemIndex) => itemIndex === index ? { ...current, [field]: value } : current))
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Item Availability</div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                  Each item defaults to fully available. Adjust the quantity for anything short — those items go to Admin as a shortfall list. Everything else is marked supplied right away.
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {storesDraft.map((item, index) => {
+                  const short = Number(item.quantity_available) < item.quantity
                   return (
-                    <div key={item.id} style={{ padding: 14, border: '1px solid var(--border)', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)', marginBottom: 10 }}>{item.item_name}</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 10, marginBottom: 10 }}>
-                        <input className="input" value={details.outsourcing_vendor || ''} onChange={e => updateDetails('outsourcing_vendor', e.target.value)} placeholder="Vendor" />
-                        <input className="input" type="number" min="0" step="0.01" value={details.outsourcing_cost ?? ''} onChange={e => updateDetails('outsourcing_cost', e.target.value)} placeholder="Cost" />
+                    <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 90px 140px', gap: 10, alignItems: 'center', padding: '10px 12px', background: short ? 'var(--yellow-bg)' : 'var(--surface-2)', borderRadius: 'var(--r)', border: `1px solid ${short ? '#FDE68A' : 'var(--border)'}` }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)' }}>{item.item_name}</div>
+                        {item.remarks && <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{item.remarks}</div>}
                       </div>
-                      <input className="input" value={details.outsourcing_reason || ''} onChange={e => updateDetails('outsourcing_reason', e.target.value)} placeholder="Outsourcing reason" style={{ marginBottom: 10 }} />
-                      <textarea className="input" rows={2} value={details.outsourcing_notes || ''} onChange={e => updateDetails('outsourcing_notes', e.target.value)} placeholder="Notes" style={{ resize: 'vertical' }} />
+                      <div style={{ fontSize: 12, color: 'var(--text-3)', textAlign: 'center' }}>needed: {item.quantity}</div>
+                      <div>
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          max={item.quantity}
+                          value={item.quantity_available}
+                          onChange={e => setStoresDraft(draft => draft.map((current, i) => i === index ? { ...current, quantity_available: e.target.value } : current))}
+                          style={{ textAlign: 'center' }}
+                        />
+                      </div>
                     </div>
                   )
                 })}
               </div>
+            </div>
+          )}
+
+          {profile.role === 'admin' && req.status === 'outsourcing' && (
+            <div className="card" style={{ padding: 20, gridColumn: '1 / -1' }}>
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Outsourcing — Shortfall Only</div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                  Only the items Stores couldn't fully supply are listed here. Anything already available was issued directly.
+                </div>
+              </div>
+              {outsourcingItems.length === 0 ? (
+                <div style={{ fontSize: 13, color: 'var(--text-3)' }}>No outstanding items — everything was fully available.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  {outsourcingItems.map((item, index) => (
+                    <div key={item.id} style={{ padding: 14, border: '1px solid var(--border)', borderRadius: 'var(--r)', background: 'var(--surface-2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)' }}>{item.item_name}</div>
+                        <span style={{ fontSize: 11, color: 'var(--yellow)', fontWeight: 600 }}>
+                          need {item.quantity - (item.quantity_available ?? 0)} more of {item.quantity}
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: 10, marginBottom: 10 }}>
+                        <input className="input" value={item.outsourcing_vendor} onChange={e => setOutsourcingItems(items => items.map((current, i) => i === index ? { ...current, outsourcing_vendor: e.target.value } : current))} placeholder="Vendor" />
+                        <input className="input" type="number" min="0" step="0.01" value={item.outsourcing_cost} onChange={e => setOutsourcingItems(items => items.map((current, i) => i === index ? { ...current, outsourcing_cost: e.target.value } : current))} placeholder="Cost" />
+                      </div>
+                      <input className="input" value={item.outsourcing_reason} onChange={e => setOutsourcingItems(items => items.map((current, i) => i === index ? { ...current, outsourcing_reason: e.target.value } : current))} placeholder="Outsourcing reason" style={{ marginBottom: 10 }} />
+                      <textarea className="input" rows={2} value={item.outsourcing_notes} onChange={e => setOutsourcingItems(items => items.map((current, i) => i === index ? { ...current, outsourcing_notes: e.target.value } : current))} placeholder="Notes" style={{ resize: 'vertical' }} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -896,7 +1056,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey === 'admin_forward_accounts' ? 'Forward to Accounts' :
           confirm?.actionKey === 'accounts_approve_payment' ? 'Approve Payment' :
           confirm?.actionKey === 'accounts_reject_payment' ? 'Return to Admin' :
-          confirm?.actionKey?.includes('unavailable') ? 'Flag as Unavailable' : 'Confirm Action'
+          confirm?.actionKey === 'stores_return' ? 'Save Item Availability' : 'Confirm Action'
         }
         message={
           confirm?.actionKey === 'hod_authorize' ? 'Authorize this requisition and forward to management for final approval?' :
@@ -907,7 +1067,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey === 'management_return' ? 'Return this requisition to the HOD for further review?' :
           confirm?.actionKey === 'management_reject' ? 'Reject this requisition? The requester will be notified by email.' :
           confirm?.actionKey === 'stores_fulfill' ? 'Confirm all items have been issued to the requester? They will be notified by email.' :
-          confirm?.actionKey === 'stores_return' ? 'Flag items as unavailable and send this request to Admin for outsourcing?' :
+          confirm?.actionKey === 'stores_return' ? 'Save these availability numbers? Items marked short will be sent to Admin, everything else is marked issued now.' :
           confirm?.actionKey === 'admin_forward_accounts' ? 'Save the outsourcing details and send this request to Accounts for payment review?' :
           confirm?.actionKey === 'accounts_approve_payment' ? 'Approve payment and complete this request?' :
           confirm?.actionKey === 'accounts_reject_payment' ? 'Return this request to Admin for outsourcing review?' :
@@ -917,7 +1077,8 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey?.includes('authorize') ? 'Authorize' :
           confirm?.actionKey?.includes('approve') ? 'Approve' :
           confirm?.actionKey?.includes('reject') ? 'Reject' :
-          confirm?.actionKey?.includes('return') || confirm?.actionKey?.includes('flag') ? 'Confirm' :
+          confirm?.actionKey === 'stores_return' ? 'Save' :
+          confirm?.actionKey?.includes('return') ? 'Confirm' :
           confirm?.actionKey === 'staff_resubmit' ? 'Resubmit' :
           confirm?.actionKey?.includes('fulfill') ? 'Mark Fulfilled' :
           confirm?.actionKey === 'admin_forward_accounts' ? 'Forward' :

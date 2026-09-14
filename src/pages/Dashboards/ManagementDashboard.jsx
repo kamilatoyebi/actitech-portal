@@ -5,12 +5,16 @@ import { SkeletonCard } from '../../components/ui/Skeleton'
 import { Clock, TrendingUp, ClipboardList, CheckCircle, Eye } from 'lucide-react'
 
 const STATUS = {
-  submitted:         { l: 'Submitted',    c: 'var(--purple)',  bg: 'var(--purple-bg)' },
-  hod_review:        { l: 'HOD Review',   c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
-  management_review: { l: 'Mgmt Review',  c: 'var(--blue)',    bg: '#DBEAFE' },
-  approved:          { l: 'Approved',     c: 'var(--green)',   bg: 'var(--green-bg)' },
-  fulfilled:         { l: 'Fulfilled',    c: 'var(--teal)',    bg: 'var(--teal-bg)' },
-  rejected:          { l: 'Rejected',     c: 'var(--red)',     bg: 'var(--red-bg)' },
+  revision_required: { l: 'Revision Required', c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
+  submitted:         { l: 'Submitted',      c: 'var(--purple)',  bg: 'var(--purple-bg)' },
+  hod_review:        { l: 'HOD Review',     c: 'var(--yellow)',  bg: 'var(--yellow-bg)' },
+  management_review: { l: 'Mgmt Review',    c: 'var(--blue)',    bg: '#DBEAFE' },
+  approved:          { l: 'Approved',       c: 'var(--green)',   bg: 'var(--green-bg)' },
+  outsourcing:       { l: 'Outsourcing',    c: 'var(--purple)',  bg: 'var(--purple-bg)' },
+  payment_review:    { l: 'Payment Review', c: 'var(--blue)',    bg: '#DBEAFE' },
+  fulfilled:         { l: 'Fulfilled',      c: 'var(--teal)',    bg: 'var(--teal-bg)' },
+  completed:         { l: 'Completed',      c: 'var(--green)',   bg: 'var(--green-bg)' },
+  rejected:          { l: 'Rejected',       c: 'var(--red)',     bg: 'var(--red-bg)' },
 }
 
 function Pill({ status }) {
@@ -36,7 +40,7 @@ export default function ManagementDashboard({ profile, toast }) {
         .order('created_at', { ascending: false }),
       supabase.from('requisitions')
         .select('*, profiles(full_name, id, email), departments(name), req_items(*)')
-        .in('status', ['approved', 'fulfilled', 'rejected'])
+        .in('status', ['revision_required', 'approved', 'outsourcing', 'payment_review', 'fulfilled', 'completed', 'rejected'])
         .order('created_at', { ascending: false })
         .limit(20)
     ])

@@ -2,13 +2,16 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../lib/supabase'
 import RequestDetail from '../RequestDetail'
 import { SkeletonCard } from '../../components/ui/Skeleton'
-import { Package, Clock, CheckCircle, Eye } from 'lucide-react'
+import { Package, Clock, CheckCircle, Eye, Truck } from 'lucide-react'
 
 const STATUS = {
-  submitted:         { l: 'Submitted',    c: 'var(--purple)', bg: 'var(--purple-bg)' },
-  management_review: { l: 'Mgmt Review',  c: 'var(--blue)',   bg: '#DBEAFE' },
-  approved:  { l: 'Approved',   c: 'var(--green)', bg: 'var(--green-bg)' },
-  fulfilled: { l: 'Fulfilled',  c: 'var(--teal)',  bg: 'var(--teal-bg)' },
+  submitted:         { l: 'Submitted',      c: 'var(--purple)', bg: 'var(--purple-bg)' },
+  management_review: { l: 'Mgmt Review',    c: 'var(--blue)',   bg: '#DBEAFE' },
+  approved:          { l: 'Approved',       c: 'var(--green)',  bg: 'var(--green-bg)' },
+  outsourcing:       { l: 'Outsourcing',    c: 'var(--yellow)', bg: 'var(--yellow-bg)' },
+  payment_review:    { l: 'Payment Review', c: 'var(--blue)',   bg: '#DBEAFE' },
+  completed:         { l: 'Completed',      c: 'var(--green)',  bg: 'var(--green-bg)' },
+  fulfilled:         { l: 'Fulfilled',      c: 'var(--teal)',   bg: 'var(--teal-bg)' },
 }
 
 function Pill({ status }) {
@@ -28,7 +31,7 @@ export default function StoresDashboard({ profile, toast }) {
     setLoading(true)
     const { data } = await supabase.from('requisitions')
       .select('*, profiles(full_name, id, email), departments(name), req_items(*)')
-      .in('status', ['submitted', 'management_review', 'approved', 'fulfilled'])
+      .in('status', ['submitted', 'management_review', 'approved', 'outsourcing', 'payment_review', 'completed', 'fulfilled'])
       .order('created_at', { ascending: false })
     if (data) setReqs(data)
     setLoading(false)
@@ -42,29 +45,34 @@ export default function StoresDashboard({ profile, toast }) {
     />
   )
 
-  const incoming  = reqs.filter(r => ['submitted', 'management_review'].includes(r.status))
-  const pending   = reqs.filter(r => r.status === 'approved')
-  const fulfilled = reqs.filter(r => r.status === 'fulfilled')
-  const displayed = tab === 'incoming' ? incoming : tab === 'pending' ? pending : fulfilled
+  const incoming   = reqs.filter(r => ['submitted', 'management_review'].includes(r.status))
+  const pending    = reqs.filter(r => r.status === 'approved')
+  // Requests Store flagged short — still worth seeing even though Admin/Accounts
+  // owns the next steps, since Store is the one who reported the shortfall.
+  const outsourced = reqs.filter(r => ['outsourcing', 'payment_review', 'completed'].includes(r.status))
+  const fulfilled  = reqs.filter(r => r.status === 'fulfilled')
+  const displayed  = tab === 'incoming' ? incoming : tab === 'pending' ? pending : tab === 'outsourced' ? outsourced : fulfilled
 
   const tabs = [
-    { key: 'incoming',  label: 'Incoming',             count: incoming.length },
-    { key: 'pending',   label: 'Awaiting Fulfillment', count: pending.length },
-    { key: 'fulfilled', label: 'Fulfilled',             count: fulfilled.length },
+    { key: 'incoming',   label: 'Incoming',             count: incoming.length },
+    { key: 'pending',    label: 'Awaiting Fulfillment', count: pending.length },
+    { key: 'outsourced', label: 'Outsourced',           count: outsourced.length },
+    { key: 'fulfilled',  label: 'Fulfilled',            count: fulfilled.length },
   ]
 
   return (
     <div style={{ padding: '28px 32px', fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div className="page-header">
         <div className="page-title">Stores Dashboard</div>
-        <div className="page-sub">Review incoming requests, add availability comments, and issue approved items</div>
+        <div className="page-sub">Review incoming requests, report item availability, and issue approved items</div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 14, marginBottom: 28 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 28 }}>
         {[
-          { label: 'Awaiting Fulfillment', val: pending.length,    icon: Clock,         color: 'var(--yellow)' },
-          { label: 'Incoming for Review',  val: incoming.length,   icon: Clock,         color: 'var(--blue)' },
-          { label: 'Fulfilled',            val: fulfilled.length,  icon: CheckCircle,   color: 'var(--green)' },
+          { label: 'Awaiting Fulfillment', val: pending.length,    icon: Clock,       color: 'var(--yellow)' },
+          { label: 'Incoming for Review',  val: incoming.length,   icon: Clock,       color: 'var(--blue)' },
+          { label: 'Outsourced',           val: outsourced.length, icon: Truck,       color: 'var(--yellow)' },
+          { label: 'Fulfilled',            val: fulfilled.length,  icon: CheckCircle, color: 'var(--green)' },
         ].map(s => {
           const Icon = s.icon
           return (
@@ -97,7 +105,10 @@ export default function StoresDashboard({ profile, toast }) {
         <div className="card empty-state">
           <Package size={36} style={{ opacity: 0.3 }} />
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-2)' }}>
-            {tab === 'incoming' ? 'No incoming requests to review' : tab === 'pending' ? 'No requests awaiting fulfillment' : 'No fulfilled requests yet'}
+            {tab === 'incoming' ? 'No incoming requests to review' :
+             tab === 'pending' ? 'No requests awaiting fulfillment' :
+             tab === 'outsourced' ? 'No requests currently being outsourced' :
+             'No fulfilled requests yet'}
           </div>
         </div>
       ) : (

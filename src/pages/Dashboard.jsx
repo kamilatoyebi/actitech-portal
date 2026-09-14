@@ -4,10 +4,8 @@ import StoresDashboard from './Dashboards/StoresDashboard'
 import StaffDashboard from './Dashboards/StaffDashboard'
 import AdminDashboard from './Dashboards/AdminDashboard'
 import AccountsDashboard from './Dashboards/AccountsDashboard'
-import RequestDetail from './RequestDetail'
 
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Sidebar from '../components/Sidebar'
 import { sendEmail, emailTemplates } from '../lib/sendEmail'
@@ -17,7 +15,6 @@ import { LogOut, Bell, Plus, Trash2 } from 'lucide-react'
 const STATUS = {
   draft:             { l:'Draft',        c:'var(--text-3)',  bg:'var(--surface-2)' },
   submitted:         { l:'Submitted',    c:'var(--purple)',  bg:'var(--purple-bg)' },
-  revision_required: { l:'Revision Required', c:'var(--yellow)', bg:'var(--yellow-bg)' },
   hod_review:        { l:'HOD Review',   c:'var(--yellow)',  bg:'var(--yellow-bg)' },
   management_review: { l:'Mgmt Review',  c:'var(--blue)',    bg:'#DBEAFE' },
   approved:          { l:'Approved',     c:'var(--green)',   bg:'var(--green-bg)' },
@@ -45,10 +42,9 @@ function ComingSoon({ title }) {
   )
 }
 
-export default function Dashboard({ profile, requestId = null }) {
-  const [page, setPage] = useState(profile.role === 'staff' ? 'my_requests' : 'dashboard')
+export default function Dashboard({ profile }) {
+  const [page, setPage] = useState('dashboard')
   const toast = useToast()
-  const navigate = useNavigate()
 
   async function signOut() {
     await supabase.auth.signOut()
@@ -57,21 +53,20 @@ export default function Dashboard({ profile, requestId = null }) {
   const canAccessOS = ['hod', 'management', 'admin'].includes(profile.role)
 
   const renderPage = () => {
-    if (requestId) return <RequestDetail reqId={requestId} profile={profile} onBack={() => navigate('/')} />
     switch(page) {
       case 'new_request': return <NewRequest profile={profile} setPage={setPage} toast={toast} />
       case 'my_requests': return <MyRequests profile={profile} />
       case 'employees':   return canAccessOS ? <ComingSoon title="Employee Directory" /> : <StaffDashboard profile={profile} setPage={setPage} />
       case 'departments': return canAccessOS ? <ComingSoon title="Departments" /> : <StaffDashboard profile={profile} setPage={setPage} />
       case 'analytics':   return canAccessOS ? <ComingSoon title="Analytics" /> : <StaffDashboard profile={profile} setPage={setPage} />
-      case 'admin':       return profile.role === 'admin' ? <AdminDashboard profile={profile} /> : <StaffDashboard profile={profile} setPage={setPage} />
-      default:
-        if (profile.role === 'hod') return <HODDashboard profile={profile} toast={toast} />
-        if (profile.role === 'management') return <ManagementDashboard profile={profile} toast={toast} />
-        if (profile.role === 'stores') return <StoresDashboard profile={profile} toast={toast} />
-        if (profile.role === 'admin') return <AdminDashboard profile={profile} />
-        if (profile.role === 'accounts') return <AccountsDashboard profile={profile} />
-        return <StaffDashboard profile={profile} setPage={setPage} />
+      case 'admin':       return profile.role === 'admin' ? <AdminDashboard profile={profile} toast={toast} /> : <StaffDashboard profile={profile} setPage={setPage} />
+    default:
+      if (profile.role === 'hod') return <HODDashboard profile={profile} toast={toast} />
+      if (profile.role === 'management') return <ManagementDashboard profile={profile} toast={toast} />
+      if (profile.role === 'stores') return <StoresDashboard profile={profile} toast={toast} />
+      if (profile.role === 'admin') return <AdminDashboard profile={profile} toast={toast} />
+      if (profile.role === 'accounts') return <AccountsDashboard profile={profile} toast={toast} />
+      return <StaffDashboard profile={profile} setPage={setPage} />
     }
   }
 
@@ -81,11 +76,11 @@ export default function Dashboard({ profile, requestId = null }) {
   }
 
   return (
-    <div className="app-shell" style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)', fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--bg)', fontFamily: 'Inter, system-ui, sans-serif' }}>
       <Sidebar profile={profile} page={page} setPage={setPage} onSignOut={signOut} />
-      <div className="app-main" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {/* Topbar */}
-        <div className="app-topbar" style={{ height: 54, background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 12, flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ height: 54, background: 'var(--surface)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', padding: '0 24px', gap: 12, flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>{pageTitles[page] || 'Dashboard'}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {profile.role === 'staff' && (
@@ -104,7 +99,7 @@ export default function Dashboard({ profile, requestId = null }) {
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto' }} className="app-content fade-in" key={page}>
+        <div style={{ flex: 1, overflowY: 'auto' }} className="fade-in" key={page}>
           {renderPage()}
         </div>
       </div>
@@ -276,7 +271,6 @@ function NewRequest({ profile, setPage, toast }) {
 function MyRequests({ profile }) {
   const [reqs, setReqs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedReqId, setSelectedReqId] = useState(null)
 
   useEffect(() => {
     supabase.from('requisitions')
@@ -285,14 +279,6 @@ function MyRequests({ profile }) {
       .order('created_at', { ascending: false })
       .then(({ data }) => { if (data) setReqs(data); setLoading(false) })
   }, [])
-
-  if (selectedReqId) return (
-    <RequestDetail
-      reqId={selectedReqId}
-      profile={profile}
-      onBack={() => setSelectedReqId(null)}
-    />
-  )
 
   return (
     <div style={{ padding: '28px 32px' }}>
@@ -325,7 +311,7 @@ function MyRequests({ profile }) {
             </thead>
             <tbody>
               {reqs.map(r => (
-                <tr key={r.id} onClick={() => setSelectedReqId(r.id)} style={{ cursor: 'pointer' }}>
+                <tr key={r.id}>
                   <td style={{ fontWeight: 700, color: 'var(--blue)', fontSize: 12 }}>{r.req_number}</td>
                   <td style={{ fontWeight: 500 }}>{r.purpose}</td>
                   <td style={{ color: 'var(--text-3)' }}>{r.req_items?.length} item{r.req_items?.length !== 1 ? 's' : ''}</td>
