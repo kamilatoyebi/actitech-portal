@@ -123,8 +123,12 @@ html, body, #root {
 .btn-secondary:hover:not(:disabled) { background: var(--surface-2); border-color: var(--border-2); }
 .btn-danger { background: var(--red-bg); color: var(--red); }
 .btn-danger:hover:not(:disabled) { background: #fecaca; }
+.btn-danger-outline { background: var(--surface); color: var(--red); border: 1px solid var(--red); }
+.btn-danger-outline:hover:not(:disabled) { background: var(--red-bg); }
 .btn-warning { background: var(--yellow-bg); color: var(--yellow); }
 .btn-warning:hover:not(:disabled) { background: #fde68a; }
+.btn-warning-outline { background: var(--surface); color: var(--yellow); border: 1px solid var(--yellow); }
+.btn-warning-outline:hover:not(:disabled) { background: var(--yellow-bg); }
 .btn-success { background: var(--green-bg); color: var(--green); }
 .btn-success:hover:not(:disabled) { background: #bbf7d0; }
 .btn-ghost { background: transparent; color: var(--text-2); }
@@ -132,6 +136,11 @@ html, body, #root {
 .btn-sm { padding: 5px 10px; font-size: 11px; }
 .btn-lg { padding: 11px 22px; font-size: 14px; }
 .btn-icon { padding: 7px; border-radius: var(--r); }
+.field-error { color: var(--red); font-size: 11px; margin-top: 4px; line-height: 1.35; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 
 /* Card */
 .card {
@@ -150,6 +159,8 @@ html, body, #root {
   outline: none;
 }
 .input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(26,86,219,0.1); }
+.input-error { border-color: var(--red); }
+.input-error:focus { border-color: var(--red); box-shadow: 0 0 0 3px rgba(185,28,28,0.12); }
 .input::placeholder { color: var(--text-3); }
 .input-dark {
   background: rgba(255,255,255,0.06);
