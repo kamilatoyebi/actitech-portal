@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { sendEmail, emailTemplates } from '../lib/sendEmail'
 import { useToast } from '../components/ui/Toast'
-import { ConfirmModal } from '../components/ui/Modal'
+import { ConfirmModal, Modal } from '../components/ui/Modal'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import {
@@ -48,6 +48,69 @@ function AvailabilityPill({ availability }) {
     <span className="pill" style={{ background: a.bg, color: a.c, fontSize: 10, padding: '2px 8px' }}>
       {a.l}
     </span>
+  )
+}
+
+function validateRequestDraft(draft) {
+  const errors = { items: [] }
+  if (!draft?.purpose.trim()) errors.purpose = 'Enter a purpose.'
+  if (!draft?.items?.length) errors.items = [{ name: 'Add at least one item.' }]
+  else {
+    errors.items = draft.items.map(item => ({
+      name: !item.item_name.trim() ? 'Enter an item description.' : '',
+      quantity: !Number.isInteger(Number(item.quantity)) || Number(item.quantity) < 1
+        ? 'Enter a whole number of at least 1.'
+        : '',
+    }))
+  }
+  return errors
+}
+
+function hasValidationErrors(errors) {
+  return Boolean(errors.purpose) ||
+    errors.items.some(item => item.name || item.quantity)
+}
+
+function FieldError({ id, children }) {
+  return children ? <div id={id} className="field-error" role="alert">{children}</div> : null
+}
+
+function normalizeName(name) {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function SignatureModal({ open, actionTitle, profileName, signatureName, setSignatureName, error, onClose, onConfirm }) {
+  const matchesProfile = Boolean(signatureName.trim()) && Boolean(profileName.trim()) &&
+    normalizeName(signatureName) === normalizeName(profileName)
+  const validationMessage = error || (signatureName.trim() && !matchesProfile
+    ? 'Name must match your signed-in profile name.'
+    : '')
+  return (
+    <Modal open={open} onClose={onClose} title="Verify your decision" maxWidth={440}>
+      <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 16 }}>
+        Type your full name to sign this decision. It must match your signed-in profile name.
+      </p>
+      <div style={{ marginBottom: 20 }}>
+        <label className="label" htmlFor="hod-signature-name">Full name</label>
+        <input
+          id="hod-signature-name"
+          className={`input${validationMessage ? ' input-error' : ''}`}
+          value={signatureName}
+          onChange={e => setSignatureName(e.target.value)}
+          aria-invalid={Boolean(validationMessage)}
+          aria-describedby="hod-signature-error"
+          autoFocus
+          placeholder={profileName}
+        />
+        <FieldError id="hod-signature-error">{validationMessage}</FieldError>
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} className="btn btn-secondary">Cancel</button>
+        <button onClick={onConfirm} className={`btn ${actionTitle === 'Rejected by HOD' ? 'btn-danger' : 'btn-success'}`} disabled={!matchesProfile}>
+          Confirm {actionTitle === 'Rejected by HOD' ? 'Rejection' : 'Authorization'}
+        </button>
+      </div>
+    </Modal>
   )
 }
 
@@ -378,6 +441,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState(false)
   const [confirm, setConfirm] = useState(null)
+  const [signatureConfirm, setSignatureConfirm] = useState(null)
+  const [signatureName, setSignatureName] = useState('')
+  const [signatureError, setSignatureError] = useState('')
   const [printing, setPrinting] = useState(false)
   const [actionComment, setActionComment] = useState('')
   const [showCommentForAction, setShowCommentForAction] = useState(null)
@@ -385,8 +451,10 @@ export default function RequestDetail({ reqId, profile, onBack }) {
   const [paymentReference, setPaymentReference] = useState('')
   const [editingRevision, setEditingRevision] = useState(false)
   const [revisionDraft, setRevisionDraft] = useState(null)
+  const [revisionErrors, setRevisionErrors] = useState({ items: [] })
   const [editingHodRequest, setEditingHodRequest] = useState(false)
   const [hodDraft, setHodDraft] = useState(null)
+  const [hodErrors, setHodErrors] = useState({ items: [] })
   const [savingEdits, setSavingEdits] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
   const [storesDraft, setStoresDraft] = useState(null)
@@ -429,12 +497,14 @@ export default function RequestDetail({ reqId, profile, onBack }) {
         priority: reqData.priority || 'Normal',
         items: reqData.req_items?.map(item => ({ id: item.id, item_name: item.item_name, quantity: item.quantity, remarks: item.remarks || '' })) || [],
       })
+      setRevisionErrors({ items: reqData.req_items?.map(() => ({ name: '', quantity: '' })) || [] })
       setHodDraft({
         purpose: reqData.purpose || '',
         location: reqData.location || '',
         priority: reqData.priority || 'Normal',
         items: reqData.req_items?.map(item => ({ id: item.id, item_name: item.item_name, quantity: item.quantity, remarks: item.remarks || '' })) || [],
       })
+      setHodErrors({ items: reqData.req_items?.map(() => ({ name: '', quantity: '' })) || [] })
       // Default every item to "fully available" — Store only needs to touch
       // the ones that are actually short.
       setStoresDraft(reqData.req_items?.map(item => ({
@@ -449,7 +519,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     setLoading(false)
   }
 
-  async function takeAction(action, comment = '', reference = '') {
+  async function takeAction(action, comment = '', reference = '', verifiedSignatureName = '', actionTitle = '') {
     setActing(true)
     const statusMap = {
       hod_authorize:          'management_review',
@@ -489,7 +559,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
 
     if (action === 'staff_resubmit') {
       const draft = revisionDraft
-      if (!draft?.purpose.trim() || draft.items.some(item => !item.item_name.trim() || Number(item.quantity) < 1)) {
+      const errors = validateRequestDraft(draft)
+      setRevisionErrors(errors)
+      if (hasValidationErrors(errors)) {
         toast('Add a purpose and a valid name and quantity for every item', 'error'); setActing(false); return
       }
       const { error: requestError } = await supabase.from('requisitions').update({
@@ -578,6 +650,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       stage,
       action: actionLabel,
       comment: comment || null,
+      ...(action === 'hod_authorize' || action === 'hod_reject'
+        ? { signature_name: verifiedSignatureName, action_title: actionTitle }
+        : {}),
     })
     if (approvalError) { toast(approvalError.message, 'error'); setActing(false); return }
 
@@ -640,12 +715,17 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     setShowCommentForAction(null)
     setReportingAvailability(false)
     setConfirm(null)
+    setSignatureConfirm(null)
+    setSignatureName('')
+    setSignatureError('')
     await fetchAll()
     setActing(false)
   }
 
   async function saveHodEdits() {
-    if (!hodDraft?.purpose.trim() || hodDraft.items.some(item => !item.item_name.trim() || Number(item.quantity) < 1)) {
+    const errors = validateRequestDraft(hodDraft)
+    setHodErrors(errors)
+    if (hasValidationErrors(errors)) {
       toast('Add a purpose and a valid name and quantity for every item', 'error'); return
     }
 
@@ -717,6 +797,36 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     setConfirm, acting, toast,
   }
 
+  function confirmAction() {
+    if (confirm?.actionKey === 'hod_authorize' || confirm?.actionKey === 'hod_reject') {
+      setSignatureName('')
+      setSignatureError('')
+      setSignatureConfirm({
+        actionKey: confirm.actionKey,
+        comment: confirm.comment,
+        paymentReference: confirm.paymentReference,
+        actionTitle: confirm.actionKey === 'hod_authorize' ? 'Authorized by HOD' : 'Rejected by HOD',
+      })
+      return
+    }
+    takeAction(confirm.actionKey, confirm.comment, confirm.paymentReference)
+  }
+
+  function confirmSignature() {
+    if (!signatureConfirm) return
+    if (!normalizeName(signatureName) || normalizeName(signatureName) !== normalizeName(profile.full_name || '')) {
+      setSignatureError('Enter your full name exactly as shown in your profile.')
+      return
+    }
+    takeAction(
+      signatureConfirm.actionKey,
+      signatureConfirm.comment,
+      signatureConfirm.paymentReference,
+      signatureName.trim().replace(/\s+/g, ' '),
+      signatureConfirm.actionTitle,
+    )
+  }
+
   // Role-specific action buttons
   const ActionBar = () => {
     const role = profile.role
@@ -734,9 +844,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
             <button onClick={() => setEditingHodRequest(value => !value)} className="btn btn-secondary btn-sm">
               {editingHodRequest ? 'Continue Editing' : 'Edit Request'}
             </button>
-            <ActionWithComment actionKey="hod_return" label="Return for Revision" btnClass="btn-warning" icon={RotateCcw} {...commentProps} />
-            <ActionWithComment actionKey="hod_reject" label="Reject" btnClass="btn-danger" icon={XCircle} {...commentProps} />
             <ActionWithComment actionKey="hod_authorize" label="Authorize" btnClass="btn-success" icon={CheckCircle} {...commentProps} />
+            <ActionWithComment actionKey="hod_return" label="Return for Revision" btnClass="btn-warning-outline" icon={RotateCcw} {...commentProps} />
+            <ActionWithComment actionKey="hod_reject" label="Reject" btnClass="btn-danger-outline" icon={XCircle} {...commentProps} />
           </>
         )}
 
@@ -896,7 +1006,11 @@ export default function RequestDetail({ reqId, profile, onBack }) {
                 <button onClick={() => setEditingRevision(false)} className="btn btn-secondary btn-sm">Cancel</button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                <div><label className="label">Purpose *</label><input className="input" value={revisionDraft.purpose} onChange={e => setRevisionDraft(draft => ({ ...draft, purpose: e.target.value }))} /></div>
+                <div>
+                  <label className="label" htmlFor="revision-purpose">Purpose *</label>
+                  <input id="revision-purpose" className={`input${revisionErrors.purpose ? ' input-error' : ''}`} value={revisionDraft.purpose} aria-invalid={Boolean(revisionErrors.purpose)} aria-describedby="revision-purpose-error" onChange={e => { setRevisionDraft(draft => ({ ...draft, purpose: e.target.value })); setRevisionErrors(errors => ({ ...errors, purpose: '' })) }} />
+                  <FieldError id="revision-purpose-error">{revisionErrors.purpose}</FieldError>
+                </div>
                 <div><label className="label">Location / Site</label><input className="input" value={revisionDraft.location} onChange={e => setRevisionDraft(draft => ({ ...draft, location: e.target.value }))} /></div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -906,13 +1020,21 @@ export default function RequestDetail({ reqId, profile, onBack }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
                 {revisionDraft.items.map((item, index) => (
                   <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 90px minmax(0, 1fr)', gap: 10 }}>
-                    <input className="input" value={item.item_name} onChange={e => setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, item_name: e.target.value } : current) }))} placeholder="Item description" />
-                    <input className="input" type="number" min="1" value={item.quantity} onChange={e => setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, quantity: e.target.value } : current) }))} />
+                    <div>
+                      <label className="sr-only" htmlFor={`revision-item-name-${index}`}>Item {index + 1} description</label>
+                      <input id={`revision-item-name-${index}`} className={`input${revisionErrors.items[index]?.name ? ' input-error' : ''}`} value={item.item_name} aria-invalid={Boolean(revisionErrors.items[index]?.name)} aria-describedby={`revision-item-name-error-${index}`} onChange={e => { setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, item_name: e.target.value } : current) })); setRevisionErrors(errors => ({ ...errors, items: errors.items.map((current, i) => i === index ? { ...current, name: '' } : current) })) }} placeholder="Item description" />
+                      <FieldError id={`revision-item-name-error-${index}`}>{revisionErrors.items[index]?.name}</FieldError>
+                    </div>
+                    <div>
+                      <label className="sr-only" htmlFor={`revision-item-quantity-${index}`}>Quantity for item {index + 1}</label>
+                      <input id={`revision-item-quantity-${index}`} className={`input${revisionErrors.items[index]?.quantity ? ' input-error' : ''}`} type="number" min="1" value={item.quantity} aria-invalid={Boolean(revisionErrors.items[index]?.quantity)} aria-describedby={`revision-item-quantity-error-${index}`} onChange={e => { setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, quantity: e.target.value } : current) })); setRevisionErrors(errors => ({ ...errors, items: errors.items.map((current, i) => i === index ? { ...current, quantity: '' } : current) })) }} />
+                      <FieldError id={`revision-item-quantity-error-${index}`}>{revisionErrors.items[index]?.quantity}</FieldError>
+                    </div>
                     <input className="input" value={item.remarks} onChange={e => setRevisionDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, remarks: e.target.value } : current) }))} placeholder="Remarks" />
                   </div>
                 ))}
               </div>
-              <button onClick={() => setConfirm({ actionKey: 'staff_resubmit', comment: 'Request updated and resubmitted.' })} className="btn btn-primary" disabled={acting}><Send size={14} /> Resubmit to HOD</button>
+              <button onClick={() => { const errors = validateRequestDraft(revisionDraft); setRevisionErrors(errors); if (!hasValidationErrors(errors)) setConfirm({ actionKey: 'staff_resubmit', comment: 'Request updated and resubmitted.' }) }} className="btn btn-primary" disabled={acting}><Send size={14} /> Resubmit to HOD</button>
             </div>
           )}
 
@@ -926,7 +1048,11 @@ export default function RequestDetail({ reqId, profile, onBack }) {
                 <button onClick={() => setEditingHodRequest(false)} className="btn btn-secondary btn-sm" disabled={savingEdits}>Cancel</button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                <div><label className="label">Purpose *</label><input className="input" value={hodDraft.purpose} onChange={e => setHodDraft(draft => ({ ...draft, purpose: e.target.value }))} /></div>
+                <div>
+                  <label className="label" htmlFor="hod-purpose">Purpose *</label>
+                  <input id="hod-purpose" className={`input${hodErrors.purpose ? ' input-error' : ''}`} value={hodDraft.purpose} aria-invalid={Boolean(hodErrors.purpose)} aria-describedby="hod-purpose-error" onChange={e => { setHodDraft(draft => ({ ...draft, purpose: e.target.value })); setHodErrors(errors => ({ ...errors, purpose: '' })) }} />
+                  <FieldError id="hod-purpose-error">{hodErrors.purpose}</FieldError>
+                </div>
                 <div><label className="label">Location / Site</label><input className="input" value={hodDraft.location} onChange={e => setHodDraft(draft => ({ ...draft, location: e.target.value }))} /></div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
@@ -936,8 +1062,16 @@ export default function RequestDetail({ reqId, profile, onBack }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
                 {hodDraft.items.map((item, index) => (
                   <div key={item.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 90px minmax(0, 1fr)', gap: 10 }}>
-                    <input className="input" value={item.item_name} onChange={e => setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, item_name: e.target.value } : current) }))} placeholder="Item description" />
-                    <input className="input" type="number" min="1" value={item.quantity} onChange={e => setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, quantity: e.target.value } : current) }))} />
+                    <div>
+                      <label className="sr-only" htmlFor={`hod-item-name-${index}`}>Item {index + 1} description</label>
+                      <input id={`hod-item-name-${index}`} className={`input${hodErrors.items[index]?.name ? ' input-error' : ''}`} value={item.item_name} aria-invalid={Boolean(hodErrors.items[index]?.name)} aria-describedby={`hod-item-name-error-${index}`} onChange={e => { setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, item_name: e.target.value } : current) })); setHodErrors(errors => ({ ...errors, items: errors.items.map((current, i) => i === index ? { ...current, name: '' } : current) })) }} placeholder="Item description" />
+                      <FieldError id={`hod-item-name-error-${index}`}>{hodErrors.items[index]?.name}</FieldError>
+                    </div>
+                    <div>
+                      <label className="sr-only" htmlFor={`hod-item-quantity-${index}`}>Quantity for item {index + 1}</label>
+                      <input id={`hod-item-quantity-${index}`} className={`input${hodErrors.items[index]?.quantity ? ' input-error' : ''}`} type="number" min="1" value={item.quantity} aria-invalid={Boolean(hodErrors.items[index]?.quantity)} aria-describedby={`hod-item-quantity-error-${index}`} onChange={e => { setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, quantity: e.target.value } : current) })); setHodErrors(errors => ({ ...errors, items: errors.items.map((current, i) => i === index ? { ...current, quantity: '' } : current) })) }} />
+                      <FieldError id={`hod-item-quantity-error-${index}`}>{hodErrors.items[index]?.quantity}</FieldError>
+                    </div>
                     <input className="input" value={item.remarks} onChange={e => setHodDraft(draft => ({ ...draft, items: draft.items.map((current, i) => i === index ? { ...current, remarks: e.target.value } : current) }))} placeholder="Remarks" />
                   </div>
                 ))}
@@ -1045,7 +1179,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       <ConfirmModal
         open={!!confirm}
         onClose={() => { setConfirm(null); setShowCommentForAction(null) }}
-        onConfirm={() => takeAction(confirm.actionKey, confirm.comment, confirm.paymentReference)}
+        onConfirm={confirmAction}
         title={
           confirm?.actionKey?.includes('authorize') ? 'Authorize Request' :
           confirm?.actionKey?.includes('approve') ? 'Approve Request' :
@@ -1086,6 +1220,17 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey === 'accounts_reject_payment' ? 'Return to Admin' : 'Confirm'
         }
         danger={confirm?.actionKey?.includes('reject')}
+      />
+
+      <SignatureModal
+        open={!!signatureConfirm}
+        actionTitle={signatureConfirm?.actionTitle}
+        profileName={profile.full_name || ''}
+        signatureName={signatureName}
+        setSignatureName={value => { setSignatureName(value); setSignatureError('') }}
+        error={signatureError}
+        onClose={() => { setSignatureConfirm(null); setSignatureName(''); setSignatureError('') }}
+        onConfirm={confirmSignature}
       />
 
       {/* Hidden print view */}
