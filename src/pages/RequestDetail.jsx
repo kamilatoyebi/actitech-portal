@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { sendEmail, emailTemplates } from '../lib/sendEmail'
 import { useToast } from '../components/ui/Toast'
-import { ConfirmModal } from '../components/ui/Modal'
+import { ConfirmModal, Modal } from '../components/ui/Modal'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import {
@@ -73,6 +73,45 @@ function hasValidationErrors(errors) {
 
 function FieldError({ id, children }) {
   return children ? <div id={id} className="field-error" role="alert">{children}</div> : null
+}
+
+function normalizeName(name) {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function SignatureModal({ open, actionTitle, profileName, signatureName, setSignatureName, error, onClose, onConfirm }) {
+  const matchesProfile = Boolean(signatureName.trim()) && Boolean(profileName.trim()) &&
+    normalizeName(signatureName) === normalizeName(profileName)
+  const validationMessage = error || (signatureName.trim() && !matchesProfile
+    ? 'Name must match your signed-in profile name.'
+    : '')
+  return (
+    <Modal open={open} onClose={onClose} title="Verify your decision" maxWidth={440}>
+      <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6, marginBottom: 16 }}>
+        Type your full name to sign this decision. It must match your signed-in profile name.
+      </p>
+      <div style={{ marginBottom: 20 }}>
+        <label className="label" htmlFor="hod-signature-name">Full name</label>
+        <input
+          id="hod-signature-name"
+          className={`input${validationMessage ? ' input-error' : ''}`}
+          value={signatureName}
+          onChange={e => setSignatureName(e.target.value)}
+          aria-invalid={Boolean(validationMessage)}
+          aria-describedby="hod-signature-error"
+          autoFocus
+          placeholder={profileName}
+        />
+        <FieldError id="hod-signature-error">{validationMessage}</FieldError>
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onClose} className="btn btn-secondary">Cancel</button>
+        <button onClick={onConfirm} className={`btn ${actionTitle === 'Rejected by HOD' ? 'btn-danger' : 'btn-success'}`} disabled={!matchesProfile}>
+          Confirm {actionTitle === 'Rejected by HOD' ? 'Rejection' : 'Authorization'}
+        </button>
+      </div>
+    </Modal>
+  )
 }
 
 // Module-scope so its identity is stable across RequestDetail re-renders.
@@ -402,6 +441,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
   const [loading, setLoading] = useState(true)
   const [acting, setActing] = useState(false)
   const [confirm, setConfirm] = useState(null)
+  const [signatureConfirm, setSignatureConfirm] = useState(null)
+  const [signatureName, setSignatureName] = useState('')
+  const [signatureError, setSignatureError] = useState('')
   const [printing, setPrinting] = useState(false)
   const [actionComment, setActionComment] = useState('')
   const [showCommentForAction, setShowCommentForAction] = useState(null)
@@ -477,7 +519,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     setLoading(false)
   }
 
-  async function takeAction(action, comment = '', reference = '') {
+  async function takeAction(action, comment = '', reference = '', verifiedSignatureName = '', actionTitle = '') {
     setActing(true)
     const statusMap = {
       hod_authorize:          'management_review',
@@ -608,6 +650,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       stage,
       action: actionLabel,
       comment: comment || null,
+      ...(action === 'hod_authorize' || action === 'hod_reject'
+        ? { signature_name: verifiedSignatureName, action_title: actionTitle }
+        : {}),
     })
     if (approvalError) { toast(approvalError.message, 'error'); setActing(false); return }
 
@@ -670,6 +715,9 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     setShowCommentForAction(null)
     setReportingAvailability(false)
     setConfirm(null)
+    setSignatureConfirm(null)
+    setSignatureName('')
+    setSignatureError('')
     await fetchAll()
     setActing(false)
   }
@@ -747,6 +795,36 @@ export default function RequestDetail({ reqId, profile, onBack }) {
     actionComment, setActionComment,
     paymentReference, setPaymentReference,
     setConfirm, acting, toast,
+  }
+
+  function confirmAction() {
+    if (confirm?.actionKey === 'hod_authorize' || confirm?.actionKey === 'hod_reject') {
+      setSignatureName('')
+      setSignatureError('')
+      setSignatureConfirm({
+        actionKey: confirm.actionKey,
+        comment: confirm.comment,
+        paymentReference: confirm.paymentReference,
+        actionTitle: confirm.actionKey === 'hod_authorize' ? 'Authorized by HOD' : 'Rejected by HOD',
+      })
+      return
+    }
+    takeAction(confirm.actionKey, confirm.comment, confirm.paymentReference)
+  }
+
+  function confirmSignature() {
+    if (!signatureConfirm) return
+    if (!normalizeName(signatureName) || normalizeName(signatureName) !== normalizeName(profile.full_name || '')) {
+      setSignatureError('Enter your full name exactly as shown in your profile.')
+      return
+    }
+    takeAction(
+      signatureConfirm.actionKey,
+      signatureConfirm.comment,
+      signatureConfirm.paymentReference,
+      signatureName.trim().replace(/\s+/g, ' '),
+      signatureConfirm.actionTitle,
+    )
   }
 
   // Role-specific action buttons
@@ -1101,7 +1179,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       <ConfirmModal
         open={!!confirm}
         onClose={() => { setConfirm(null); setShowCommentForAction(null) }}
-        onConfirm={() => takeAction(confirm.actionKey, confirm.comment, confirm.paymentReference)}
+        onConfirm={confirmAction}
         title={
           confirm?.actionKey?.includes('authorize') ? 'Authorize Request' :
           confirm?.actionKey?.includes('approve') ? 'Approve Request' :
@@ -1142,6 +1220,17 @@ export default function RequestDetail({ reqId, profile, onBack }) {
           confirm?.actionKey === 'accounts_reject_payment' ? 'Return to Admin' : 'Confirm'
         }
         danger={confirm?.actionKey?.includes('reject')}
+      />
+
+      <SignatureModal
+        open={!!signatureConfirm}
+        actionTitle={signatureConfirm?.actionTitle}
+        profileName={profile.full_name || ''}
+        signatureName={signatureName}
+        setSignatureName={value => { setSignatureName(value); setSignatureError('') }}
+        error={signatureError}
+        onClose={() => { setSignatureConfirm(null); setSignatureName(''); setSignatureError('') }}
+        onConfirm={confirmSignature}
       />
 
       {/* Hidden print view */}
