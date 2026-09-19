@@ -76,7 +76,7 @@ function FieldError({ id, children }) {
 }
 
 function normalizeName(name) {
-  return name.trim().replace(/\s+/g, ' ').toLowerCase()
+  return name.replace(/\s/g, '').toLowerCase()
 }
 
 function SignatureModal({ open, actionTitle, profileName, signatureName, setSignatureName, error, onClose, onConfirm }) {
@@ -520,6 +520,11 @@ export default function RequestDetail({ reqId, profile, onBack }) {
   }
 
   async function takeAction(action, comment = '', reference = '', verifiedSignatureName = '', actionTitle = '') {
+    if ((action === 'hod_authorize' || action === 'hod_reject') &&
+      normalizeName(verifiedSignatureName) !== normalizeName(profile.full_name || '')) {
+      toast('Your signature must match your signed-in profile name.', 'error')
+      return
+    }
     setActing(true)
     const statusMap = {
       hod_authorize:          'management_review',
@@ -822,7 +827,7 @@ export default function RequestDetail({ reqId, profile, onBack }) {
       signatureConfirm.actionKey,
       signatureConfirm.comment,
       signatureConfirm.paymentReference,
-      signatureName.trim().replace(/\s+/g, ' '),
+      signatureName.trim(),
       signatureConfirm.actionTitle,
     )
   }
